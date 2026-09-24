@@ -107,7 +107,7 @@ body.setup section.is-locked{opacity:.55}
 .ask-box p{margin:0 0 16px;color:var(--muted);font-size:13px;line-height:1.55;white-space:pre-line}
 .ask-box div{display:flex;justify-content:flex-end;gap:8px}
 
-/* Phone from the account: create one, or pick one of the user's own. */
+/* Phone from the account: pick one of the user's own. */
 .auto{margin-top:12px;padding:12px 14px;border:1px solid var(--line);border-radius:10px}
 .auto .row{margin-top:10px}
 .devlist{display:grid;gap:6px;margin-top:10px}
@@ -247,10 +247,9 @@ label.dev small{color:var(--muted);font-size:12px}
       <button type="button" class="edit" aria-label="Edit phone device">Edit</button></div>
     <form id="devForm" autocomplete="off" novalidate>
       <div class="auto" id="devAuto" hidden>
-        <p class="hint" style="margin:0">Let Switchboard set up its phone from your account.</p>
+        <p class="hint" style="margin:0">Pick one of the phones on your account, and Switchboard signs in as it.</p>
         <div class="row">
-          <button type="button" class="primary" id="devCreate">Create a phone for this computer</button>
-          <button type="button" id="devPick" aria-expanded="false" aria-controls="devList">Use one of my phones</button>
+          <button type="button" class="primary" id="devPick" aria-expanded="false" aria-controls="devList">Use one of my phones</button>
         </div>
         <div class="devlist" id="devList" role="radiogroup" aria-label="Your phones" hidden></div>
         <div class="row" id="devUseRow" hidden><button type="button" id="devUse" disabled>Use this phone</button></div>
@@ -823,9 +822,9 @@ $('#devForget').onclick = async () => {
 };
 
 // ---- phone from the account ------------------------------------------------------
-// Signed in to the account: offer to make a phone for this computer, or to use
-// one of the user's own phones. The server reads the chosen phone's login and
-// saves it (encrypted); this page never sees the password.
+// Signed in to the account: offer to use one of the user's own phones. The
+// server reads the chosen phone's login and saves it (encrypted); this page
+// never sees the password, and nothing on the account is changed.
 function renderDevAuto() {
   const can = !!acct && hasApi() && !!acct.login.connected && acct.secureStorage !== false;
   $('#devAuto').hidden = !can;
@@ -868,30 +867,6 @@ async function devDone(j, text) {
   msg('#devAutoMsg', 'ok', text);
   await applied(j, 'device');
 }
-
-$('#devCreate').onclick = async () => {
-  if (!acct || finishing || onCall()) return;
-  if (!(await ask('Create a phone for this computer?',
-      'This adds a phone device named for this computer to your account and signs Switchboard in as it. ' +
-      'Calls to you should ring it along with your other phones (if your number rings a fixed list of phones, ' +
-      'whoever runs your phone system has to add it).\n\nIf Switchboard already made one on this computer, that one is reused.',
-      'Create it'))) return;
-  lockAuto(true); msg('#devAutoMsg', '', 'Setting up your phone…');
-  try {
-    let j;
-    try { j = await devApi({ action: 'create' }); }
-    catch (err) {
-      if (err.code !== 'charges') throw err;
-      // The platform wants the charge agreed to first; never agree for the user.
-      lockAuto(false); msg('#devAutoMsg', '', '');
-      if (!(await ask('Adding a phone may cost money', err.message + ' Add the phone anyway?', 'Add it'))) return;
-      lockAuto(true); msg('#devAutoMsg', '', 'Setting up your phone…');
-      j = await devApi({ action: 'create', acceptCharges: true });
-    }
-    await devDone(j, (j.device?.reused ? 'Reused “' : 'Created “') + (j.device?.name || 'phone') + '”. Connecting…');
-  } catch (err) { msg('#devAutoMsg', 'err', err.message); }
-  finally { if (!finishing) lockAuto(false); }
-};
 
 const KIND = { softphone: 'Softphone', browserphone: 'Browser phone', sip_device: 'Desk phone', cellphone: 'Cell phone',
   mobile: 'Mobile', smartphone: 'Smartphone', landline: 'Landline', fax: 'Fax', sip_uri: 'SIP address', application: 'App' };
