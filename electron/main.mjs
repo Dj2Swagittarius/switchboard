@@ -531,10 +531,13 @@ app.whenReady().then(async () => {
     cb({ requestHeaders: d.requestHeaders });
   });
   // Microphone and notifications for our own pages only.
+  // Our pages may use the microphone, notify, and put text on the clipboard
+  // (a message's Copy); nothing else, and nothing for any other origin.
+  const ALLOWED = ['media', 'notifications', 'clipboard-sanitized-write'];
   session.defaultSession.setPermissionRequestHandler((wc, permission, cb) =>
-    cb(ours(wc.getURL()) && ['media', 'notifications'].includes(permission)));
+    cb(ours(wc.getURL()) && ALLOWED.includes(permission)));
   session.defaultSession.setPermissionCheckHandler((_wc, permission, origin) =>
-    ours(origin) && ['media', 'notifications'].includes(permission));
+    ours(origin) && ALLOWED.includes(permission));
 
   createWindow(firstPage(await loadProfile()));
   createTray();

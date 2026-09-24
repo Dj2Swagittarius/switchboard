@@ -25,7 +25,8 @@ import { insights } from './lib/insights.mjs';
 import { threadFor, summarizeThread } from './lib/thread.mjs';
 import { listVoicemails, transcribeVoicemail, fetchVoicemailAudio } from './lib/voicemail.mjs';
 import { listCalls, fetchRecordingAudio, transcribeRecording, safeId } from './lib/calls.mjs';
-import { conversations, thread as convThread, fetchMedia, sendText, safeMediaId, uploadAttachment, deleteMedia } from './lib/messaging.mjs';
+import { conversations, thread as convThread, fetchMedia, sendText, safeMediaId, uploadAttachment, deleteMedia,
+  deleteConversation, conversationCsv } from './lib/messaging.mjs';
 import { photoIndex, fileName } from './lib/photos.mjs';
 import { zip } from './lib/zip.mjs';
 import { playable } from './lib/transcode.mjs';
@@ -152,6 +153,15 @@ async function cachedMedia(key, load) {
     mediaCache.delete(k); mediaBytes -= old.buf.length;
   }
   return v;
+}
+
+// Deleted media: drop every cached form of it and the photo index.
+function forgetMedia(ids = []) {
+  for (const id of ids) for (const k of ['mms:', 'thumb:', 'play:']) {
+    const v = mediaCache.get(k + id);
+    if (v) { mediaCache.delete(k + id); mediaBytes -= v.buf.length; }
+  }
+  invalidate('photos:');
 }
 
 function thumbnail({ buf, type }) {
@@ -318,7 +328,7 @@ const PLATFORM_PAGES = new Set(['/', '/index.html', '/messages', '/messages.html
 const GATED_PAGES = new Set([...PLATFORM_PAGES, '/contacts', '/contacts.html', '/settings', '/settings.html']);
 // Endpoints that only make sense with an account; without one they never call upstream.
 const PLATFORM_API = new Set(['/api/review/run', '/api/insights', '/api/conversations', '/api/conversation',
-  '/api/media', '/api/photos', '/api/photos/zip', '/api/messages/send', '/api/messages/upload', '/api/messages/delete', '/api/calls', '/api/recording/audio',
+  '/api/media', '/api/photos', '/api/photos/zip', '/api/messages/send', '/api/messages/upload', '/api/messages/delete', '/api/conversation/delete', '/api/conversation/export', '/api/calls', '/api/recording/audio',
   '/api/recording/transcribe', '/api/voicemail/audio', '/api/voicemails', '/api/voicemail/transcribe',
   '/api/thread', '/api/sync', '/api/send', '/api/company', '/api/parked', '/api/fax', '/api/fax/pdf', '/api/fax/send']);
 // Device and authorization usernames go into SIP headers as-is.
@@ -908,19 +918,38 @@ const server = createServer(async (req, res) => {
       } catch (e) { return json(res, 400, { error: e.message }); }
     }
 
-    // Deletes a photo (or other attachment) from a conversation: JSON
-    // {line, remote, messageId, mediaId}. Only the app's own windows may.
+    // Deletes a message, or one photo/attachment of it: JSON
+    // {line, remote, messageId, mediaId?}. Only the app's own windows may.
     if (p === '/api/messages/delete' && req.method === 'POST') {
       if (!fromApp(req)) return json(res, 403, { error: 'Open this from the Switchboard app.' });
-      const { line, remote, messageId, mediaId } = await readBody(req);
+      const { line, remote, messageId, mediaId = null } = await readBody(req);
       try {
         const r = await deleteMedia(session, { line, remote, messageId, mediaId });
-        for (const k of ['mms:', 'thumb:', 'play:']) {
-          const v = mediaCache.get(k + mediaId);
-          if (v) { mediaCache.delete(k + mediaId); mediaBytes -= v.buf.length; }
-        }
-        invalidate('photos:');
+        forgetMedia(r.media);
         return json(res, 200, r);
+      } catch (e) { return json(res, 400, { error: e.message }); }
+    }
+
+    // Deletes a whole conversation: JSON {line, remote}.
+    if (p === '/api/conversation/delete' && req.method === 'POST') {
+      if (!fromApp(req)) return json(res, 403, { error: 'Open this from the Switchboard app.' });
+      const { line, remote } = await readBody(req);
+      try {
+        const r = await deleteConversation(session, { line, remote });
+        forgetMedia(r.media);
+        return json(res, 200, { ok: true });
+      } catch (e) { return json(res, 400, { error: e.message }); }
+    }
+
+    // A conversation's history as a CSV download.
+    if (p === '/api/conversation/export') {
+      try {
+        const { csv, name } = await conversationCsv(session, { line: url.searchParams.get('line'), remote: url.searchParams.get('remote') });
+        const who = String(name).replace(/[^A-Za-z0-9+]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 40) || 'conversation';
+        const buf = Buffer.from(csv, 'utf8');
+        res.writeHead(200, { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Length': buf.length,
+          'Content-Disposition': attachment(`Messages_${who}_${new Date().toISOString().slice(0, 10)}.csv`) });
+        return res.end(buf);
       } catch (e) { return json(res, 400, { error: e.message }); }
     }
 

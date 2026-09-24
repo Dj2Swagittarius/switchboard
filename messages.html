@@ -112,12 +112,20 @@ textarea.locked{opacity:.55;cursor:progress}
 .compose.drop{outline:2px dashed var(--accent);outline-offset:-4px}
 .compose.busy .att .x,.compose.busy .tool{pointer-events:none;opacity:.45}
 .bub.file{display:inline-block;color:inherit;text-decoration:none}
-.mbox{position:relative;display:inline-block;max-width:100%}
-.mdel{position:absolute;top:6px;right:6px;width:30px;height:30px;padding:0;border-radius:50%;font-size:14px;line-height:1;
-  opacity:0;transition:opacity .15s;background:rgba(0,0,0,.6) !important;border-color:transparent !important;color:#fff}
-.mbox:hover .mdel,.mdel:focus-visible{opacity:1}
-.mbox.inline{display:flex;align-items:center;gap:6px}
-.mbox.inline .mdel{position:static;opacity:.7;background:var(--bg) !important;color:var(--ink);border-color:var(--line) !important}
+.mline{display:flex;align-items:center;gap:6px;max-width:100%}
+.m.me .mline{flex-direction:row-reverse}
+.mact{flex:none;width:28px;height:28px;padding:0;border-radius:50%;font-size:16px;line-height:1;color:var(--muted);
+  opacity:0;transition:opacity .15s}
+.mline:hover .mact,.mact:focus-visible,.mact[aria-expanded=true]{opacity:1}
+.more{font-size:18px;line-height:1;padding:4px 11px}
+.menu{position:fixed;z-index:1100;min-width:200px;padding:6px;background:var(--menu, var(--panel));color:var(--ink);
+  border:1px solid var(--line);border-radius:12px;box-shadow:0 14px 40px rgba(0,0,0,.4)}
+.menu button{display:flex;align-items:center;gap:10px;width:100%;text-align:left;border:0 !important;background:transparent !important;
+  padding:8px 10px;border-radius:8px;font-size:13.5px;box-shadow:none !important}
+.menu button:hover,.menu button:focus-visible{background:var(--hover, var(--bg)) !important;outline:none}
+.menu button.danger-item{color:var(--urgent)}
+.menu .mi{width:18px;text-align:center}
+.menu hr{border:0;border-top:1px solid var(--line);margin:5px 2px}
 dialog.ask{border:1px solid var(--line);border-radius:14px;background:var(--menu, var(--panel));color:var(--ink);
   padding:18px 20px;max-width:380px;box-shadow:0 18px 50px rgba(0,0,0,.45)}
 dialog.ask::backdrop{background:rgba(5,8,14,.5)}
@@ -299,6 +307,7 @@ function renderConvs() {
     body.append(r1, r2);
     row.append(av, body);
     row.onclick = () => openConv(c);
+    row.oncontextmenu = (e) => { e.preventDefault(); menu(row, convItems(c), e); };
     box.appendChild(row);
   }
 }
@@ -548,6 +557,8 @@ function composer({ to = null, conv = null } = {}) {
   }
   wrap.addFiles = addFiles;
   wrap.focusInput = () => (toInput || ta).focus();
+  wrap.addText = (t) => { ta.value = ta.value.trim() ? ta.value.replace(/\s*$/, '\n') + t : t; ta.oninput(); };
+  wrap.showError = (msg) => { err.textContent = msg; };
   // A pasted picture (a screenshot, an image copied from a page) is attached;
   // anything with text in it pastes as text.
   ta.addEventListener('paste', (e) => {
@@ -673,6 +684,10 @@ async function openConv(c) {
   callBtn.title = 'Call';
   callBtn.onclick = () => window.switchboardDial ? window.switchboardDial(c.remote) : (location.href = 'tel:' + c.remote);
   h.appendChild(callBtn);
+  const more = el('button', 'more', '⋯');
+  more.type = 'button'; more.title = 'More'; more.setAttribute('aria-label', 'Conversation actions'); more.setAttribute('aria-haspopup', 'menu');
+  more.onclick = () => menu(more, convItems(c));
+  h.appendChild(more);
   pane.appendChild(h);
 
   const msgs = el('div', 'msgs'); msgs.id = 'msgs';
@@ -734,6 +749,7 @@ function renderThread(list, want, scroll) {
   const sig = list.length + ':' + (list.length ? list[list.length - 1].id + list[list.length - 1].state : '');
   if (sig === openSig) return;                  // nothing new; don't disturb scroll
   openSig = sig;
+  closeMenu();
   const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
 
   box.textContent = '';
@@ -744,12 +760,12 @@ function renderThread(list, want, scroll) {
     if (dl !== lastDay) { box.appendChild(el('div', 'day', dl)); lastDay = dl; }
     const row = el('div', 'm ' + (m.inbound ? 'them' : 'me') + (m.failed ? ' failed' : ''));
     for (const md of m.media) {
-      if (/^(video|audio)\//.test(md.mime)) { row.appendChild(mediaBox(player(md, want.line), m, md, want)); continue; }
+      if (/^(video|audio)\//.test(md.mime)) { row.appendChild(actionLine(player(md, want.line), m, md, want)); continue; }
       if (!md.mime.startsWith('image/')) {
         const a = el('a', 'bub file', (md.mime === 'application/pdf' ? '📄 PDF' : '📎 Attachment') + ' · Save');
         a.href = '/api/media?id=' + encodeURIComponent(md.id) + '&line=' + encodeURIComponent(want.line) + '&download=1';
         a.setAttribute('download', '');
-        row.appendChild(mediaBox(a, m, md, want, true));
+        row.appendChild(actionLine(a, m, md, want));
         continue;
       }
       const img = el('img');
@@ -762,9 +778,9 @@ function renderThread(list, want, scroll) {
         $('#lbdl').href = img.src + '&download=1';
         lb.classList.add('open');
       };
-      row.appendChild(mediaBox(img, m, md, want));
+      row.appendChild(actionLine(img, m, md, want));
     }
-    if (m.text) row.appendChild(el('div', 'bub', m.text));
+    if (m.text) row.appendChild(actionLine(el('div', 'bub', m.text), m, null, want));
     const t = new Date(m.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
     row.appendChild(el('div', 'mt', m.failed ? 'Failed · ' + (m.reason || 'not delivered')
       : t + (m.inbound ? '' : m.state ? ' · ' + m.state : '')));
@@ -797,31 +813,172 @@ function player(md, line) {
   return wrap;
 }
 
-// A photo or other attachment in the thread, with a delete button (shown on
-// hover or keyboard focus; beside it for file links).
-function mediaBox(node, m, md, conv, inline = false) {
-  const box = el('div', 'mbox' + (inline ? ' inline' : ''));
-  const del = el('button', 'mdel', '🗑');
-  del.type = 'button'; del.title = 'Delete'; del.setAttribute('aria-label', 'Delete this ' + mediaWord(md.mime));
-  del.onclick = (e) => { e.stopPropagation(); deleteAttachment(m, md, conv); };
-  box.append(node, del);
-  return box;
+// ---- message and conversation actions ------------------------------------------
+// Like the platform's own app: a ⋯ button beside each text bubble and each
+// attachment (Forward, Download or Copy, Delete), and one on the conversation
+// (Call, Download history, Delete conversation).
+const mediaUrl = (md, line) => '/api/media?id=' + encodeURIComponent(md.id) + '&line=' + encodeURIComponent(line);
+
+function actionLine(node, m, md, conv) {
+  const line = el('div', 'mline');
+  const b = el('button', 'mact', '⋯');
+  b.type = 'button'; b.title = 'Message actions';
+  b.setAttribute('aria-label', 'Message actions'); b.setAttribute('aria-haspopup', 'menu');
+  b.onclick = (e) => { e.stopPropagation(); menu(b, msgItems(m, md, conv)); };
+  line.append(node, b);
+  return line;
 }
 
-async function deleteAttachment(m, md, conv) {
-  const what = mediaWord(md.mime);
-  const whole = m.media.length === 1 && !m.text;
-  const ok = await ask(`Delete this ${what}?`,
-    (whole ? 'It’s all this message had, so the message is deleted too. ' : '') +
-    'It’s removed from this conversation in your account; the other person keeps their copy. This can’t be undone.', 'Delete');
-  if (!ok) return;
+function msgItems(m, md, conv) {
+  // Forward / Download / Copy only for messages that came in or went through.
+  const settled = m.inbound || (!m.failed && !/^(sending|queued|pending)$/i.test(m.state || ''));
+  const items = [];
+  if (settled) {
+    items.push({ label: 'Forward', icon: '↪', run: () => md ? forwardMedia(md, conv) : forwardText(m.text) });
+    items.push(md ? { label: 'Download', icon: '⤓', run: () => download(mediaUrl(md, conv.line) + '&download=1') }
+      : { label: 'Copy', icon: '⧉', run: () => copyText(m.text) });
+    items.push('-');
+  }
+  items.push({ label: 'Delete', icon: '🗑', danger: true, run: () => deleteItem(m, md, conv) });
+  return items;
+}
+
+function convItems(c) {
+  const q = 'line=' + encodeURIComponent(c.line) + '&remote=' + encodeURIComponent(c.remote);
+  return [
+    { label: 'Call ' + pretty(c.remote), icon: '📞', run: () => window.switchboardDial ? window.switchboardDial(c.remote) : (location.href = 'tel:' + c.remote) },
+    '-',
+    { label: 'Download history', icon: '⤓', run: () => download('/api/conversation/export?' + q) },
+    '-',
+    { label: 'Delete conversation', icon: '🗑', danger: true, run: () => deleteConversationAsk(c) },
+  ];
+}
+
+// A small popup menu by a button (or at the pointer, for a right-click).
+// items: {label, icon, danger, run} or '-' for a divider. Arrow keys move, Esc closes.
+let openMenu = null;
+function closeMenu() {
+  if (!openMenu) return;
+  const { box, anchor, away, key } = openMenu;
+  openMenu = null;
+  box.remove();
+  anchor.setAttribute('aria-expanded', 'false');
+  document.removeEventListener('mousedown', away, true);
+  document.removeEventListener('keydown', key, true);
+  window.removeEventListener('resize', closeMenu);
+}
+function menu(anchor, items, at = null) {
+  const again = openMenu?.anchor === anchor && !at;
+  closeMenu();
+  if (again) return;                          // the button toggles
+  const box = el('div', 'menu'); box.setAttribute('role', 'menu');
+  for (const it of items) {
+    if (it === '-') { box.appendChild(el('hr')); continue; }
+    const b = el('button', it.danger ? 'danger-item' : '');
+    b.type = 'button'; b.setAttribute('role', 'menuitem');
+    b.append(el('span', 'mi', it.icon || ''), el('span', '', it.label));
+    b.onclick = () => { closeMenu(); it.run(); };
+    box.appendChild(b);
+  }
+  document.body.appendChild(box);
+  const r = at ? { left: at.clientX, right: at.clientX, top: at.clientY, bottom: at.clientY } : anchor.getBoundingClientRect();
+  const w = box.offsetWidth, h = box.offsetHeight;
+  const left = Math.min(Math.max(8, at ? r.left : r.right - w), innerWidth - w - 8);
+  let top = r.bottom + 4;
+  if (top + h > innerHeight - 8) top = Math.max(8, r.top - h - 4);
+  box.style.left = left + 'px'; box.style.top = top + 'px';
+  anchor.setAttribute('aria-expanded', 'true');
+  const away = (e) => { if (!box.contains(e.target) && !anchor.contains(e.target)) closeMenu(); };
+  const key = (e) => {
+    const bs = [...box.querySelectorAll('button')], i = bs.indexOf(document.activeElement);
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeMenu(); anchor.focus?.(); }
+    else if (e.key === 'ArrowDown') { e.preventDefault(); bs[(i + 1) % bs.length].focus(); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); bs[(i - 1 + bs.length) % bs.length].focus(); }
+  };
+  openMenu = { box, anchor, away, key };
+  document.addEventListener('mousedown', away, true);
+  document.addEventListener('keydown', key, true);
+  window.addEventListener('resize', closeMenu);
+  box.querySelector('button')?.focus();
+}
+
+function download(url) {
+  const a = el('a'); a.href = url; a.download = '';
+  document.body.appendChild(a); a.click(); a.remove();
+}
+
+function flash(msg) {
+  $('#stat').textContent = msg;
+  setTimeout(() => { if ($('#stat').textContent === msg) $('#stat').textContent = ''; }, 2500);
+}
+
+async function copyText(t) {
+  try { await navigator.clipboard.writeText(t); }
+  catch {
+    const ta = el('textarea'); ta.value = t; ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0';
+    document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove();
+  }
+  flash('Copied');
+}
+
+// Forward: a new message with this text, or with this file (which goes through
+// the usual checks, conversion and upload again, as in the platform's app).
+const FWD_EXT = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/gif': '.gif', 'image/webp': '.webp', 'image/bmp': '.bmp',
+  'video/mp4': '.mp4', 'video/3gpp': '.3gp', 'audio/wav': '.wav', 'audio/ogg': '.oga', 'application/pdf': '.pdf' };
+function forwardText(text) {
+  startCompose();
+  composers.get('new')?.addText(text);
+}
+async function forwardMedia(md, conv) {
+  startCompose();
+  const comp = composers.get('new');
+  try {
+    const r = await fetch(mediaUrl(md, conv.line));
+    if (!r.ok) throw new Error();
+    const blob = await r.blob();
+    const type = md.mime || blob.type;
+    comp.addFiles([new File([blob], (type.startsWith('image/') ? 'photo' : 'attachment') + (FWD_EXT[type] || ''), { type })]);
+  } catch { comp.showError('Couldn’t get that file to forward.'); }
+}
+
+// Delete, deciding like the platform's app: from an attachment, just that one
+// if the message has anything else; otherwise (or from the text) the message.
+async function deleteItem(m, md, conv) {
+  const alone = md && (m.media.length > 1 || !!m.text);
+  const n = m.media.length;
+  const title = md ? `Delete this ${mediaWord(md.mime)}?` : 'Delete this message?';
+  const lead = alone ? 'The rest of the message stays. '
+    : md ? 'It’s all this message had, so the message is deleted too. '
+    : n ? `Its ${n} attachment${n > 1 ? 's go' : ' goes'} too. ` : '';
+  if (!await ask(title, lead + 'It’s removed from this conversation in your account; the other person keeps their copy. This can’t be undone.', 'Delete')) return;
   $('#stat').textContent = 'Deleting…';
   try {
     const r = await (await fetch('/api/messages/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ line: conv.line, remote: conv.remote, messageId: m.id, mediaId: md.id }) })).json();
+      body: JSON.stringify({ line: conv.line, remote: conv.remote, messageId: m.id, mediaId: md ? md.id : null }) })).json();
     if (r.error) throw new Error(r.error);
     $('#stat').textContent = '';
     if (open === conv) { openSig = ''; await loadThread(false); }
+    loadConvs();
+  } catch (e) { $('#stat').textContent = 'Couldn’t delete: ' + e.message; }
+}
+
+async function deleteConversationAsk(c) {
+  const who = c.name || pretty(c.remote);
+  if (!await ask('Delete this conversation?', `Every message and photo with ${who} is removed from your account; they keep their copy. This can’t be undone.`, 'Delete')) return;
+  $('#stat').textContent = 'Deleting…';
+  try {
+    const r = await (await fetch('/api/conversation/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ line: c.line, remote: c.remote }) })).json();
+    if (r.error) throw new Error(r.error);
+    const key = c.line + '|' + c.remote;
+    composers.delete(key); unsent.delete(key);
+    if (open && open.line === c.line && open.remote === c.remote) {
+      open = null;
+      const pane = $('#pane'); pane.textContent = '';
+      pane.appendChild(el('div', 'empty', 'Conversation deleted.'));
+      $('#wrap').classList.remove('reading');
+    }
+    flash('Conversation deleted');
     loadConvs();
   } catch (e) { $('#stat').textContent = 'Couldn’t delete: ' + e.message; }
 }
