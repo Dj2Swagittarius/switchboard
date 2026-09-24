@@ -32,6 +32,7 @@ import { zip } from './lib/zip.mjs';
 import { playable } from './lib/transcode.mjs';
 import * as fax from './lib/fax.mjs';
 import { dataPath, DATA_DIR } from './lib/paths.mjs';
+import * as devices from './lib/devices.mjs';
 
 // Thumbnails need an image decoder. When hosted inside the Electron app we
 // can use its nativeImage; under plain Node, thumbnails fall back to the
@@ -208,6 +209,10 @@ function fromApp(req) {
 // every stop, so work begun for an earlier sign-in (box lookup, a background
 // sign-in, a sync in flight) can tell it is stale and drop its result.
 let generation = 0;
+// Bumped whenever this PC's phone login is saved, forgotten or reset, so a
+// "set up my phone" request that was still waiting upstream can tell its
+// answer is out of date and not save it.
+let deviceEpoch = 0;
 let started = false;      // startPlatform has run for this generation
 let primed = false;       // a sync has completed for this sign-in (see sync())
 let lastNewest = null;    // newest inbound time the last pass saw; plain notifications only announce newer
@@ -329,7 +334,7 @@ const PLATFORM_PAGES = new Set(['/', '/index.html', '/messages', '/messages.html
 const GATED_PAGES = new Set([...PLATFORM_PAGES, '/contacts', '/contacts.html', '/settings', '/settings.html']);
 // Endpoints that only make sense with an account; without one they never call upstream.
 const PLATFORM_API = new Set(['/api/review/run', '/api/insights', '/api/conversations', '/api/conversation',
-  '/api/media', '/api/photos', '/api/photos/zip', '/api/messages/send', '/api/messages/upload', '/api/messages/delete', '/api/conversation/delete', '/api/conversation/export', '/api/calls', '/api/recording/audio',
+  '/api/media', '/api/photos', '/api/photos/zip', '/api/messages/send', '/api/messages/upload', '/api/messages/delete', '/api/conversation/delete', '/api/conversation/export', '/api/account/devices', '/api/calls', '/api/recording/audio',
   '/api/recording/transcribe', '/api/voicemail/audio', '/api/voicemails', '/api/voicemail/transcribe',
   '/api/thread', '/api/sync', '/api/send', '/api/company', '/api/parked', '/api/fax', '/api/fax/pdf', '/api/fax/send']);
 // Device and authorization usernames go into SIP headers as-is.
@@ -632,6 +637,38 @@ const server = createServer(async (req, res) => {
       } catch { return json(res, 404, { error: 'not found' }); }
     }
 
+    // Setup's "set up my phone for me": GET lists the signed-in user's own
+    // phone devices; POST {action:'use', id} or {action:'create'} saves that
+    // device's SIP login here (encrypted), like typing it into the form would.
+    if (p === '/api/account/devices') {
+      if (!fromApp(req)) return json(res, 403, { error: 'Open this from the Switchboard app.' });
+      if (!secrets.available()) return json(res, 400, { error: 'Secure storage isn’t available on this PC, so a phone login can’t be saved.' });
+      try {
+        if (req.method === 'GET') return json(res, 200, { ...(await devices.listMine(session)), name: devices.deviceName() });
+        if (req.method !== 'POST') return json(res, 405, { error: 'method not allowed' });
+        const b = await readBody(req);
+        const gen = generation, epoch = deviceEpoch, who = session.account_id + ':' + session.owner_id;
+        let got;
+        try {
+          got = b.action === 'create' ? await devices.createForThisComputer(session, { acceptCharges: b.acceptCharges === true })
+            : b.action === 'use' ? await devices.useMine(session, b.id) : null;
+        } catch (e) {
+          if (e.code) return json(res, 402, { error: e.message, code: e.code });   // a charge to agree to, or a billing block
+          throw e;
+        }
+        if (!got) return json(res, 400, { error: 'nothing to do' });
+        // Signed out, reset, or the phone login changed while this waited upstream.
+        if (gen !== generation || epoch !== deviceEpoch || who !== session.account_id + ':' + session.owner_id)
+          return json(res, 409, { error: 'Your sign-in or phone settings changed while this was running. Try again.' });
+        if (!SIP_USER.test(got.username)) return json(res, 400, { error: 'That phone device’s SIP username can’t be used here.' });
+        secrets.set({ 'sip.username': got.username, 'sip.password': got.password, 'sip.authUsername': '' });
+        deviceEpoch++;
+        pushProfile();
+        return json(res, 200, { ok: true, account: profile.status(session, { loginError }),
+          device: { name: got.name, reused: !!got.reused, created: b.action === 'create' && !got.reused, webrtc: got.webrtc ?? true } });
+      } catch (e) { return json(res, 400, { error: e.message }); }
+    }
+
     if (p === '/api/account' || p === '/api/sip/config') {
       if (!fromApp(req)) return json(res, 403, { error: 'Open this from the Switchboard app.' });
 
@@ -646,6 +683,7 @@ const server = createServer(async (req, res) => {
       try {
         // Start over: servers, login and device go; AI keys and settings stay.
         if (b.reset === true) {
+          deviceEpoch++;
           stopPlatform(); clearSession(session); loginError = '';
           if (secrets.available()) {
             secrets.forget('login.');
@@ -662,6 +700,7 @@ const server = createServer(async (req, res) => {
         }
 
         if (b.forget === 'device') {
+          deviceEpoch++;
           secrets.set({ 'sip.username': null, 'sip.password': null, 'sip.authUsername': null });
           return saved();
         }
@@ -741,6 +780,7 @@ const server = createServer(async (req, res) => {
           // Blank password keeps the saved one; blank authorization username removes it.
           const patch = { 'sip.username': username, 'sip.authUsername': authUsername };
           if (password) patch['sip.password'] = password;
+          deviceEpoch++;
           secrets.set(patch);
           return saved();
         }

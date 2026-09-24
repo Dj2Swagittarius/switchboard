@@ -106,6 +106,19 @@ body.setup section.is-locked{opacity:.55}
 .ask-box b{display:block;font-size:15px;margin-bottom:6px}
 .ask-box p{margin:0 0 16px;color:var(--muted);font-size:13px;line-height:1.55;white-space:pre-line}
 .ask-box div{display:flex;justify-content:flex-end;gap:8px}
+
+/* Phone from the account: create one, or pick one of the user's own. */
+.auto{margin-top:12px;padding:12px 14px;border:1px solid var(--line);border-radius:10px}
+.auto .row{margin-top:10px}
+.devlist{display:grid;gap:6px;margin-top:10px}
+label.dev{display:flex;gap:10px;align-items:center;margin:0;padding:8px 10px;border:1px solid var(--line);border-radius:8px;
+  cursor:pointer;color:var(--ink);font-size:13px}
+label.dev:has(input:checked){border-color:var(--accent)}
+label.dev:has(input:disabled){opacity:.55;cursor:not-allowed}
+label.dev input{width:auto;margin:0;flex:none}
+label.dev .dt{min-width:0;display:flex;flex-direction:column}
+label.dev small{color:var(--muted);font-size:12px}
+.or{margin:14px 0 0;font-size:12.5px;color:var(--muted)}
 </style>
 
 <script src="/nav.js"></script>
@@ -133,7 +146,7 @@ body.setup section.is-locked{opacity:.55}
   <section id="blocked" class="blocked" hidden>
     <h2>Open this in the desktop app</h2>
     <p class="note">Credentials can only be viewed or changed from the Switchboard app window, not from a browser.
-      Start it with <b>Switchboard.bat</b>.</p>
+      Open the Switchboard app on this PC.</p>
   </section>
 
   <!-- 1 Servers -->
@@ -233,6 +246,17 @@ body.setup section.is-locked{opacity:.55}
     <div class="sum" hidden><span class="sumtxt"></span>
       <button type="button" class="edit" aria-label="Edit phone device">Edit</button></div>
     <form id="devForm" autocomplete="off" novalidate>
+      <div class="auto" id="devAuto" hidden>
+        <p class="hint" style="margin:0">Let Switchboard set up its phone from your account.</p>
+        <div class="row">
+          <button type="button" class="primary" id="devCreate">Create a phone for this computer</button>
+          <button type="button" id="devPick" aria-expanded="false" aria-controls="devList">Use one of my phones</button>
+        </div>
+        <div class="devlist" id="devList" role="radiogroup" aria-label="Your phones" hidden></div>
+        <div class="row" id="devUseRow" hidden><button type="button" id="devUse" disabled>Use this phone</button></div>
+        <p class="msg" id="devAutoMsg" role="status"></p>
+      </div>
+      <p class="or" id="devOr" hidden>Or enter a phone device's SIP details yourself:</p>
       <label for="du">SIP username<span class="req" aria-hidden="true">*</span></label>
       <input id="du" required spellcheck="false" autocapitalize="off" autocomplete="off">
       <label for="dp">SIP password<span class="req" aria-hidden="true" id="dpReq">*</span></label>
@@ -257,7 +281,7 @@ body.setup section.is-locked{opacity:.55}
     <h2>How these are stored</h2>
     <p class="note">Encrypted on this PC with Windows' own protection, so only your Windows account can read them.
       Passwords are never shown again after you save them. To change one, type a new one; leave it blank to keep
-      the saved one. Server addresses aren't secret and are kept in the app folder.</p>
+      the saved one. Server addresses aren't secret and are kept in Switchboard's data folder on this PC.</p>
     <p class="note">Calls placed from this app are real calls on your line. Keep your provider's own app or a desk
       phone working as a backup, especially for 911, until you're confident in this one.</p>
   </section>
@@ -556,6 +580,7 @@ function render() {
     ? 'Secure storage isn’t available on this PC, so logins and passwords can’t be saved.' : '');
   placeholders();
   pills();
+  renderDevAuto();
   if (setup) renderWizard(); else renderNormal();
 }
 
@@ -796,6 +821,132 @@ $('#devForget').onclick = async () => {
   } catch (err) { msg('#devMsg', 'err', err.message); }
   finally { $('#devForget').disabled = false; }
 };
+
+// ---- phone from the account ------------------------------------------------------
+// Signed in to the account: offer to make a phone for this computer, or to use
+// one of the user's own phones. The server reads the chosen phone's login and
+// saves it (encrypted); this page never sees the password.
+function renderDevAuto() {
+  const can = !!acct && hasApi() && !!acct.login.connected && acct.secureStorage !== false;
+  $('#devAuto').hidden = !can;
+  $('#devOr').hidden = !can;
+  if (!can) { $('#devList').hidden = true; $('#devUseRow').hidden = true; $('#devPick').setAttribute('aria-expanded', 'false'); }
+}
+// While a phone is being set up, nothing else that changes the phone or the
+// sign-in can be pressed (a turned-off or unusable phone's choice stays disabled).
+const OTHERS = '#devGo, #devForget, #loginGo, #loginOut, #srvGo, #reset, main .edit';
+function lockAuto(on) {
+  for (const el of document.querySelectorAll('#devAuto button, #devAuto input')) el.disabled = on || el.dataset.off === '1';
+  for (const el of document.querySelectorAll(OTHERS)) el.disabled = on;
+  if (!on) $('#devUse').disabled = !document.querySelector('#devList input:checked');
+}
+// Switching phones restarts the phone, which would end a call.
+function onCall() {
+  if (!phoneState?.inCall) return false;
+  msg('#devAutoMsg', 'err', 'Finish your call first: switching phones would end it.');
+  return true;
+}
+async function devApi(body) {
+  let r;
+  try {
+    r = await fetch('/api/account/devices', body ? { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body) } : { cache: 'no-store' });
+  } catch { throw new Error('Could not reach Switchboard. Is it still running?'); }
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok || j.error) {
+    const e = new Error(j.error || 'Something went wrong (HTTP ' + r.status + ').');
+    e.code = j.code; e.status = r.status;
+    throw e;
+  }
+  return j;
+}
+async function devDone(j, text) {
+  $('#dp').value = '';
+  $('#devList').hidden = true; $('#devUseRow').hidden = true; $('#devPick').setAttribute('aria-expanded', 'false');
+  awaitPhone();
+  tellPhone({ type: 'reload' });
+  msg('#devAutoMsg', 'ok', text);
+  await applied(j, 'device');
+}
+
+$('#devCreate').onclick = async () => {
+  if (!acct || finishing || onCall()) return;
+  if (!(await ask('Create a phone for this computer?',
+      'This adds a phone device named for this computer to your account and signs Switchboard in as it. ' +
+      'Calls to you should ring it along with your other phones (if your number rings a fixed list of phones, ' +
+      'whoever runs your phone system has to add it).\n\nIf Switchboard already made one on this computer, that one is reused.',
+      'Create it'))) return;
+  lockAuto(true); msg('#devAutoMsg', '', 'Setting up your phone…');
+  try {
+    let j;
+    try { j = await devApi({ action: 'create' }); }
+    catch (err) {
+      if (err.code !== 'charges') throw err;
+      // The platform wants the charge agreed to first; never agree for the user.
+      lockAuto(false); msg('#devAutoMsg', '', '');
+      if (!(await ask('Adding a phone may cost money', err.message + ' Add the phone anyway?', 'Add it'))) return;
+      lockAuto(true); msg('#devAutoMsg', '', 'Setting up your phone…');
+      j = await devApi({ action: 'create', acceptCharges: true });
+    }
+    await devDone(j, (j.device?.reused ? 'Reused “' : 'Created “') + (j.device?.name || 'phone') + '”. Connecting…');
+  } catch (err) { msg('#devAutoMsg', 'err', err.message); }
+  finally { if (!finishing) lockAuto(false); }
+};
+
+const KIND = { softphone: 'Softphone', browserphone: 'Browser phone', sip_device: 'Desk phone', cellphone: 'Cell phone',
+  mobile: 'Mobile', smartphone: 'Smartphone', landline: 'Landline', fax: 'Fax', sip_uri: 'SIP address', application: 'App' };
+$('#devPick').onclick = async () => {
+  if (!acct || finishing) return;
+  const box = $('#devList');
+  if (!box.hidden) { box.hidden = true; $('#devUseRow').hidden = true; $('#devPick').setAttribute('aria-expanded', 'false'); return; }
+  lockAuto(true); msg('#devAutoMsg', '', 'Loading your phones…');
+  try {
+    const { devices, total } = await devApi();
+    box.textContent = '';
+    for (const d of devices) {
+      const lab = document.createElement('label'); lab.className = 'dev';
+      const r = document.createElement('input'); r.type = 'radio'; r.name = 'devpick'; r.value = d.id;
+      r.dataset.name = d.name; r.dataset.webrtc = String(d.webrtc);
+      const t = document.createElement('span'); t.className = 'dt';
+      const b = document.createElement('b'); b.textContent = d.name || '(no name)';
+      const sm = document.createElement('small');
+      sm.textContent = [KIND[d.type] || d.type || 'Phone',
+        d.ours ? 'set up by Switchboard on this computer' : '',
+        !d.enabled ? 'turned off' : d.usable === false ? d.reason : d.webrtc === false ? 'not set up for browser calls' : ''].filter(Boolean).join(' · ');
+      t.append(b, sm); lab.append(r, t); box.append(lab);
+      r.disabled = !d.enabled || d.usable === false;
+      if (r.disabled) r.dataset.off = '1';
+      r.onchange = () => { $('#devUse').disabled = false; };
+    }
+    box.hidden = !devices.length;
+    $('#devUseRow').hidden = !devices.length;
+    $('#devPick').setAttribute('aria-expanded', String(!!devices.length));
+    msg('#devAutoMsg', '', !devices.length ? 'Your account has no phones yet. Create one instead.'
+      : 'Pick the phone Switchboard should sign in as.' + (String(total) !== String(devices.length) ? ` (Showing ${devices.length} of ${total}.)` : ''));
+  } catch (err) { msg('#devAutoMsg', 'err', err.message); }
+  finally { if (!finishing) lockAuto(false); }
+};
+
+$('#devUse').onclick = async () => {
+  const r = document.querySelector('#devList input:checked');
+  if (!acct || finishing || !r || onCall()) return;
+  if (!(await ask('Use “' + (r.dataset.name || 'this phone') + '”?',
+      'Switchboard signs in as this phone. Pick one that isn’t signed in on another app or desk phone at the same time, or calls may not ring reliably on both.' +
+      (r.dataset.webrtc === 'false' ? '\n\nThis phone isn’t set up for browser calls, so calls may connect with no sound.' : ''),
+      'Use it'))) return;
+  lockAuto(true); msg('#devAutoMsg', '', 'Signing in as that phone…');
+  try {
+    const j = await devApi({ action: 'use', id: r.value });
+    await devDone(j, 'Using “' + (r.dataset.name || 'that phone') + '”. Connecting…');
+  } catch (err) { msg('#devAutoMsg', 'err', err.message); }
+  finally { if (!finishing) lockAuto(false); }
+};
+
+$('#devList').addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter') return;
+  e.preventDefault();
+  if (document.querySelector('#devList input:checked') && !$('#devUse').disabled) $('#devUse').click();
+});
 
 // ---- wizard: Edit / Cancel ------------------------------------------------------
 for (const name of STEPS) {
