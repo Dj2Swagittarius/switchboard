@@ -107,7 +107,7 @@ body.setup section.is-locked{opacity:.55}
 .ask-box p{margin:0 0 16px;color:var(--muted);font-size:13px;line-height:1.55;white-space:pre-line}
 .ask-box div{display:flex;justify-content:flex-end;gap:8px}
 
-/* Phone from the account: pick one of the user's own. */
+/* Phone from the account: create one, or pick one of the user's own. */
 .auto{margin-top:12px;padding:12px 14px;border:1px solid var(--line);border-radius:10px}
 .auto .row{margin-top:10px}
 .devlist{display:grid;gap:6px;margin-top:10px}
@@ -247,9 +247,10 @@ label.dev small{color:var(--muted);font-size:12px}
       <button type="button" class="edit" aria-label="Edit phone device">Edit</button></div>
     <form id="devForm" autocomplete="off" novalidate>
       <div class="auto" id="devAuto" hidden>
-        <p class="hint" style="margin:0">Pick one of the phones on your account, and Switchboard signs in as it.</p>
+        <p class="hint" style="margin:0">Let Switchboard set up its phone from your account.</p>
         <div class="row">
-          <button type="button" class="primary" id="devPick" aria-expanded="false" aria-controls="devList">Use one of my phones</button>
+          <button type="button" class="primary" id="devCreate">Create a phone for this computer</button>
+          <button type="button" id="devPick" aria-expanded="false" aria-controls="devList">Use one of my phones</button>
         </div>
         <div class="devlist" id="devList" role="radiogroup" aria-label="Your phones" hidden></div>
         <div class="row" id="devUseRow" hidden><button type="button" id="devUse" disabled>Use this phone</button></div>
@@ -369,12 +370,14 @@ async function post(body) {
 }
 
 // Promise-based confirm drawn in the page (see .ask in the styles).
-function ask(title, body = '', yes = 'Continue') {
+// notice: just an OK (nothing to cancel).
+function ask(title, body = '', yes = 'Continue', notice = false) {
   return new Promise((resolve) => {
     const box = $('#ask');
     $('#askT').textContent = title;
     $('#askP').textContent = body;
     $('#askYes').textContent = yes;
+    $('#askNo').hidden = notice;
     box.hidden = false;
     const done = (v) => {
       box.hidden = true;
@@ -387,7 +390,7 @@ function ask(title, body = '', yes = 'Continue') {
     $('#askYes').onclick = () => done(true);
     $('#askNo').onclick = () => done(false);
     box.onclick = (e) => { if (e.target === box) done(false); };
-    $('#askNo').focus();
+    (notice ? $('#askYes') : $('#askNo')).focus();
   });
 }
 
@@ -822,9 +825,9 @@ $('#devForget').onclick = async () => {
 };
 
 // ---- phone from the account ------------------------------------------------------
-// Signed in to the account: offer to use one of the user's own phones. The
-// server reads the chosen phone's login and saves it (encrypted); this page
-// never sees the password, and nothing on the account is changed.
+// Signed in to the account: offer to make a phone for this computer, or to use
+// one of the user's own phones. The server reads the chosen phone's login and
+// saves it (encrypted); this page never sees the password.
 function renderDevAuto() {
   const can = !!acct && hasApi() && !!acct.login.connected && acct.secureStorage !== false;
   $('#devAuto').hidden = !can;
@@ -860,13 +863,50 @@ async function devApi(body) {
   return j;
 }
 async function devDone(j, text) {
+  // Numbers that fell off the call route right after the phone was made: say
+  // so before anything else (setup may move on to the next page).
+  const gone = j.device?.routeLost || [];
+  if (gone.length) {
+    msg('#devAutoMsg', 'err', 'Check your call route: ' + gone.join(', ') + (gone.length > 1 ? ' are' : ' is') + ' no longer on it.');
+    await ask('Check your call route now',
+      'Right after the phone was set up, ' + gone.join(', ') + (gone.length > 1 ? ' were' : ' was') +
+      ' no longer on the call route that rings you, so calls to ' + (gone.length > 1 ? 'them' : 'it') +
+      ' may not ring anywhere. Add ' + (gone.length > 1 ? 'them' : 'it') +
+      ' back in your phone system (or ask whoever runs it) and call to test.', 'OK', true);
+  }
   $('#dp').value = '';
   $('#devList').hidden = true; $('#devUseRow').hidden = true; $('#devPick').setAttribute('aria-expanded', 'false');
   awaitPhone();
   tellPhone({ type: 'reload' });
-  msg('#devAutoMsg', 'ok', text);
+  msg('#devAutoMsg', gone.length ? 'err' : 'ok', text + (gone.length ? ' Check your call route: ' + gone.join(', ') + ' went missing.' : ''));
   await applied(j, 'device');
 }
+
+$('#devCreate').onclick = async () => {
+  if (!acct || finishing || onCall()) return;
+  if (!(await ask('Create a phone for this computer?',
+      'This changes your company phone account: it adds a phone device named for this computer and signs Switchboard in as it. ' +
+      'Check with whoever runs your phone system first. Once, right after this was done, an extension was found reset ' +
+      '(its number off its call route and its text history missing), so Switchboard checks your call route before and after.\n\n' +
+      'Calls to you should ring the new phone along with your other phones (if your number rings a fixed list of phones, ' +
+      'it has to be added to that list). If Switchboard already made one on this computer, that one is reused.',
+      'Create it'))) return;
+  lockAuto(true); msg('#devAutoMsg', '', 'Setting up your phone…');
+  try {
+    let j;
+    try { j = await devApi({ action: 'create' }); }
+    catch (err) {
+      if (err.code !== 'charges') throw err;
+      // The platform wants the charge agreed to first; never agree for the user.
+      lockAuto(false); msg('#devAutoMsg', '', '');
+      if (!(await ask('Adding a phone may cost money', err.message + ' Add the phone anyway?', 'Add it'))) return;
+      lockAuto(true); msg('#devAutoMsg', '', 'Setting up your phone…');
+      j = await devApi({ action: 'create', acceptCharges: true });
+    }
+    await devDone(j, (j.device?.reused ? 'Reused “' : 'Created “') + (j.device?.name || 'phone') + '”. Connecting…');
+  } catch (err) { msg('#devAutoMsg', 'err', err.message); }
+  finally { if (!finishing) lockAuto(false); }
+};
 
 const KIND = { softphone: 'Softphone', browserphone: 'Browser phone', sip_device: 'Desk phone', cellphone: 'Cell phone',
   mobile: 'Mobile', smartphone: 'Smartphone', landline: 'Landline', fax: 'Fax', sip_uri: 'SIP address', application: 'App' };

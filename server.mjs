@@ -637,20 +637,26 @@ const server = createServer(async (req, res) => {
       } catch { return json(res, 404, { error: 'not found' }); }
     }
 
-    // Setup's "use one of my phones": GET lists the signed-in user's own phone
-    // devices; POST {action:'use', id} saves that device's SIP login here
-    // (encrypted), like typing it into the form would. Nothing on the account
-    // is created or changed.
+    // Setup's "set up my phone for me": GET lists the signed-in user's own
+    // phone devices; POST {action:'use', id} or {action:'create'} saves that
+    // device's SIP login here (encrypted), like typing it into the form would.
     if (p === '/api/account/devices') {
       if (!fromApp(req)) return json(res, 403, { error: 'Open this from the Switchboard app.' });
       if (!secrets.available()) return json(res, 400, { error: 'Secure storage isn’t available on this PC, so a phone login can’t be saved.' });
       try {
-        if (req.method === 'GET') return json(res, 200, await devices.listMine(session));
+        if (req.method === 'GET') return json(res, 200, { ...(await devices.listMine(session)), name: devices.deviceName() });
         if (req.method !== 'POST') return json(res, 405, { error: 'method not allowed' });
         const b = await readBody(req);
         const gen = generation, epoch = deviceEpoch, who = session.account_id + ':' + session.owner_id;
-        if (b.action !== 'use') return json(res, 400, { error: 'nothing to do' });
-        const got = await devices.useMine(session, b.id);
+        let got;
+        try {
+          got = b.action === 'create' ? await devices.createForThisComputer(session, { acceptCharges: b.acceptCharges === true })
+            : b.action === 'use' ? await devices.useMine(session, b.id) : null;
+        } catch (e) {
+          if (e.code) return json(res, 402, { error: e.message, code: e.code });   // a charge to agree to, or a billing block
+          throw e;
+        }
+        if (!got) return json(res, 400, { error: 'nothing to do' });
         // Signed out, reset, or the phone login changed while this waited upstream.
         if (gen !== generation || epoch !== deviceEpoch || who !== session.account_id + ':' + session.owner_id)
           return json(res, 409, { error: 'Your sign-in or phone settings changed while this was running. Try again.' });
@@ -658,7 +664,9 @@ const server = createServer(async (req, res) => {
         secrets.set({ 'sip.username': got.username, 'sip.password': got.password, 'sip.authUsername': '' });
         deviceEpoch++;
         pushProfile();
-        return json(res, 200, { ok: true, account: profile.status(session, { loginError }), device: { name: got.name, webrtc: got.webrtc } });
+        return json(res, 200, { ok: true, account: profile.status(session, { loginError }),
+          device: { name: got.name, reused: !!got.reused, created: b.action === 'create' && !got.reused, webrtc: got.webrtc ?? true,
+            routeLost: got.routeLost ?? [] } });
       } catch (e) { return json(res, 400, { error: e.message }); }
     }
 
