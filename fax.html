@@ -1,0 +1,321 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Fax</title>
+<style>
+:root{
+  --bg:#f6f7f9; --panel:#fff; --ink:#14171c; --muted:#6b7480; --line:#e3e6ea;
+  --accent:#2f6df6; --urgent:#d93025; --high:#e8710a;
+  --ok:#1a7f37; --shadow:0 1px 2px rgba(0,0,0,.05),0 4px 12px rgba(0,0,0,.05);
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){
+  --bg:#0f1216; --panel:#171b21; --ink:#e6e9ee; --muted:#8b95a1; --line:#252b33;
+  --accent:#5b8dff; --urgent:#ff6b5e; --high:#ffa04d;
+  --ok:#4ade80; --shadow:0 1px 2px rgba(0,0,0,.4);
+}}
+:root[data-theme=dark]{
+  --bg:#0f1216; --panel:#171b21; --ink:#e6e9ee; --muted:#8b95a1; --line:#252b33;
+  --accent:#5b8dff; --urgent:#ff6b5e; --high:#ffa04d;
+  --ok:#4ade80; --shadow:0 1px 2px rgba(0,0,0,.4);
+}
+:root{color-scheme:light dark}
+:root[data-theme=light]{color-scheme:light}
+:root[data-theme=dark]{color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font:14px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+header{position:sticky;top:0;z-index:5;background:var(--panel);
+  border-bottom:1px solid var(--line);display:flex;align-items:center;gap:12px;padding:10px 16px}
+h1{font-size:15px;margin:0;font-weight:650;letter-spacing:-.01em}
+h2{font-size:14px;margin:0 0 8px;font-weight:650}
+.grow{flex:1}
+.meta{color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums}
+button,input{font:inherit;color:var(--ink)}
+button{border:1px solid var(--line);background:var(--panel);padding:6px 11px;border-radius:7px;cursor:pointer}
+button:hover{border-color:var(--accent)}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+button:disabled{opacity:.5;cursor:not-allowed}
+a.btn{color:var(--ink);text-decoration:none;border:1px solid var(--line);background:var(--panel);padding:6px 11px;border-radius:7px}
+a.btn:hover{border-color:var(--accent)}
+main{padding:16px;max-width:940px;margin:0 auto;display:grid;gap:12px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:11px;box-shadow:var(--shadow);padding:14px 16px}
+.compose[hidden]{display:none}
+.fields{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+label{display:block;font-size:12.5px;color:var(--muted);margin:0 0 4px}
+input[type=text],input[type=tel]{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg)}
+input:focus{outline:2px solid var(--accent);outline-offset:-1px;border-color:transparent}
+.file{display:flex;align-items:center;gap:10px;margin-top:10px;flex-wrap:wrap}
+.file input{display:none}
+.row{display:flex;align-items:center;gap:10px;margin-top:12px;flex-wrap:wrap}
+.msg{font-size:13px}
+.msg.err{color:var(--urgent)} .msg.ok{color:var(--ok)}
+.tabs{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;justify-self:start}
+.tabs button{border:0;border-radius:0;padding:6px 14px}
+.tabs button + button{border-left:1px solid var(--line)}
+.tabs button[aria-selected=true]{background:var(--accent);color:#fff;font-weight:600}
+.item{display:flex;align-items:center;gap:14px}
+.item .who{flex:1;min-width:0}
+.item .who b{display:block;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.item .who span{display:block;color:var(--muted);font-size:12.5px;font-variant-numeric:tabular-nums}
+.pill{font-size:11px;padding:2px 9px;border-radius:999px;border:1px solid var(--line);color:var(--muted);
+  text-transform:uppercase;letter-spacing:.04em;font-weight:600;white-space:nowrap}
+.pill.ok{color:var(--ok);border-color:var(--ok)} .pill.bad{color:var(--urgent);border-color:var(--urgent)}
+.pill.busy{color:var(--high);border-color:var(--high)}
+.acts{display:flex;gap:8px}
+.empty{text-align:center;color:var(--muted);padding:48px 20px}
+.note{font-size:12.5px;color:var(--muted)}
+/* PDF viewer */
+.view{position:fixed;inset:0;z-index:900;background:rgba(5,8,14,.6);display:flex;flex-direction:column;padding:16px}
+.view[hidden]{display:none}
+.vbar{display:flex;gap:8px;justify-content:flex-end;margin-bottom:8px}
+.view iframe{flex:1;width:100%;border:0;border-radius:10px;background:#fff}
+/* In-page confirm (native confirm() can leave Electron inputs dead). */
+.ask{position:fixed;inset:0;z-index:950;display:flex;align-items:center;justify-content:center;padding:16px;
+  background:rgba(5,8,14,.45);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
+.ask[hidden]{display:none}
+.ask-box{width:420px;max-width:100%;background:var(--panel);color:var(--ink);border:1px solid var(--line);
+  border-radius:16px;padding:18px 20px;box-shadow:0 20px 60px rgba(0,0,0,.45)}
+.ask-box b{display:block;font-size:15px;margin-bottom:6px}
+.ask-box p{margin:0 0 16px;color:var(--muted);font-size:13px;line-height:1.55;white-space:pre-line}
+.ask-box div{display:flex;justify-content:flex-end;gap:8px}
+@media (max-width:600px){ .fields{grid-template-columns:1fr} .item{flex-wrap:wrap} }
+</style>
+
+<script src="/nav.js"></script>
+<header>
+  <h1>Fax</h1>
+  <span class="meta" id="mine"></span>
+  <span class="grow"></span>
+  <button type="button" class="primary" id="sendBtn">Send a fax</button>
+</header>
+<main>
+  <section class="card compose" id="compose" hidden aria-labelledby="composeT">
+    <h2 id="composeT">Send a fax</h2>
+    <div class="fields">
+      <div><label for="to">Fax number</label><input id="to" type="tel" autocomplete="off" placeholder="(555) 123-4567"></div>
+      <div><label for="toName">Recipient name (optional)</label><input id="toName" type="text" autocomplete="off" maxlength="60"></div>
+    </div>
+    <div class="file">
+      <label class="btn-label" for="file" style="margin:0"><span class="btn" id="pick" role="button" tabindex="0"
+        style="display:inline-block;border:1px solid var(--line);padding:6px 11px;border-radius:7px;cursor:pointer;color:var(--ink)">Choose PDF&hellip;</span></label>
+      <input id="file" type="file" accept="application/pdf,.pdf">
+      <span class="note" id="fileName">No file chosen. PDF only, up to 20 MB.</span>
+    </div>
+    <div class="row">
+      <button type="button" class="primary" id="go">Send fax</button>
+      <button type="button" id="cancel">Cancel</button>
+      <span class="msg" id="sendMsg" role="status"></span>
+    </div>
+  </section>
+
+  <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+    <div class="tabs" role="tablist" aria-label="Fax folders">
+      <button type="button" role="tab" id="tabIn" aria-selected="true">Received</button>
+      <button type="button" role="tab" id="tabOut" aria-selected="false">Sent</button>
+    </div>
+    <span class="msg err" id="listMsg" role="status"></span>
+  </div>
+  <div id="list" role="tabpanel"><div class="empty">Loading&hellip;</div></div>
+</main>
+
+<div class="view" id="view" hidden role="dialog" aria-modal="true" aria-label="Fax">
+  <div class="vbar"><button type="button" id="vdl">Download</button><button type="button" id="vx">Close</button></div>
+  <iframe id="vframe" title="Fax document"></iframe>
+</div>
+
+<div class="ask" id="ask" hidden role="dialog" aria-modal="true" aria-labelledby="askT">
+  <div class="ask-box"><b id="askT"></b><p id="askP"></p>
+    <div><button id="askNo">Cancel</button><button class="primary" id="askYes">Continue</button></div></div>
+</div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+const digits = (s) => String(s || '').replace(/\D/g, '');
+const pretty = (n) => { const d = digits(n).slice(-10); return d.length === 10 ? '(' + d.slice(0,3) + ') ' + d.slice(3,6) + '-' + d.slice(6) : String(n || ''); };
+const saved = localStorage.getItem('theme');
+if (saved) document.documentElement.dataset.theme = saved;
+
+function ask(title, body = '', yes = 'Continue') {
+  return new Promise((resolve) => {
+    const box = $('#ask');
+    $('#askT').textContent = title; $('#askP').textContent = body; $('#askYes').textContent = yes;
+    box.hidden = false;
+    const done = (v) => { box.hidden = true; document.removeEventListener('keydown', key, true);
+      $('#askYes').onclick = $('#askNo').onclick = box.onclick = null; resolve(v); };
+    const key = (e) => { if (e.key === 'Escape') { e.preventDefault(); done(false); } };
+    document.addEventListener('keydown', key, true);
+    $('#askYes').onclick = () => done(true);
+    $('#askNo').onclick = () => done(false);
+    box.onclick = (e) => { if (e.target === box) done(false); };
+    $('#askNo').focus();
+  });
+}
+
+let data = null, tab = 'inbox', timer = null;
+
+const STATUS = {
+  pending: ['Queued', 'busy'], retrying: ['Retrying', 'busy'], processing: ['Sending…', 'busy'],
+  completed: ['Sent', 'ok'], failed: ['Failed', 'bad'],
+};
+const inFlight = (f) => ['pending', 'retrying', 'processing'].includes(f.status);
+const when = (t) => t ? new Date(t).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
+
+function pdfUrl(folder, id) { return '/api/fax/pdf?folder=' + folder + '&id=' + encodeURIComponent(id); }
+
+function item(f, which) {
+  const c = el('div', 'card item');
+  const who = el('div', 'who');
+  who.append(el('b', '', f.name || pretty(f.number) || 'Unknown'));
+  const bits = [f.name && f.number ? pretty(f.number) : '', when(f.at), f.pages != null ? f.pages + ' page' + (f.pages === 1 ? '' : 's') : ''];
+  who.append(el('span', '', bits.filter(Boolean).join(' · ')));
+  let label, cls;
+  if (which === 'inbox') { [label, cls] = f.ok ? ['Received', 'ok'] : ['Incomplete', 'bad']; }
+  else { [label, cls] = STATUS[f.status] || [f.status || 'Unknown', '']; }
+  const pill = el('span', 'pill ' + cls, label);
+  if (f.detail) pill.title = f.detail;
+  const folder = f.folder || which;        // sent faxes live in the outbox or the outgoing queue
+  const acts = el('div', 'acts');
+  const view = el('button', '', 'View'); view.type = 'button';
+  const dl = el('button', '', 'Download'); dl.type = 'button';
+  if (f.hasPdf === false) {
+    // The provider doesn't hand back a queued fax's document; the app keeps
+    // copies only of faxes sent from it after this was added.
+    view.disabled = dl.disabled = true;
+    view.title = dl.title = 'No copy of this fax: the fax service doesn’t keep one to download.';
+  } else {
+    view.onclick = () => openView(folder, f.id);
+    dl.onclick = () => download(folder, f.id, dl);
+  }
+  acts.append(view, dl);
+  c.append(who, pill, acts);
+  // Why a sent fax failed, or why it's being retried.
+  if (which === 'outbox' && f.detail && (cls === 'bad' || f.status === 'retrying')) {
+    const w = el('div', 'note', (f.status === 'retrying'
+      ? 'Attempt ' + f.attempts + (f.retries ? ' of ' + (f.retries + 1) : '') + ' didn’t go through: ' : '') + f.detail);
+    w.style.flexBasis = '100%';
+    c.appendChild(w);
+  }
+  return c;
+}
+
+function render() {
+  const box = $('#list');
+  box.textContent = '';
+  if (!data) return;
+  $('#tabIn').textContent = 'Received' + (data.inbox.length ? ' (' + data.inbox.length + ')' : '');
+  $('#tabOut').textContent = 'Sent' + (data.outbox.length ? ' (' + data.outbox.length + ')' : '');
+  const list = tab === 'inbox' ? data.inbox : data.outbox;
+  if (!list.length) box.appendChild(el('div', 'empty', tab === 'inbox' ? 'No faxes received yet.' : 'No faxes sent yet.'));
+  const wrap = el('div'); wrap.style.display = 'grid'; wrap.style.gap = '10px';
+  for (const f of list) wrap.appendChild(item(f, tab));
+  box.appendChild(wrap);
+}
+
+async function load() {
+  try {
+    const r = await fetch('/api/fax');
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || j.error) {
+      data = null;
+      $('#list').textContent = '';
+      $('#list').appendChild(el('div', 'empty', j.code === 'no-account' ? 'Fax needs an account login (Settings → Account).'
+        : 'Could not load faxes: ' + (j.error || 'HTTP ' + r.status)));
+      return schedule(30000);
+    }
+    data = j;
+    const box = j.boxes[0];
+    $('#mine').textContent = box ? 'Your fax number: ' + pretty(box.number) : '';
+    $('#sendBtn').disabled = !box;
+    if (!box) {
+      $('#list').textContent = '';
+      $('#list').appendChild(el('div', 'empty', 'Your account has no fax box.'));
+      return schedule(60000);
+    }
+    render();
+    // Faster while something is still going out.
+    schedule(j.outbox.some(inFlight) ? 5000 : 20000);
+  } catch { schedule(15000); }
+}
+function schedule(ms) { clearTimeout(timer); timer = setTimeout(() => { if (document.visibilityState === 'visible') load(); else schedule(ms); }, ms); }
+
+for (const [btn, which] of [['#tabIn', 'inbox'], ['#tabOut', 'outbox']]) {
+  $(btn).onclick = () => {
+    tab = which;
+    $('#tabIn').setAttribute('aria-selected', String(which === 'inbox'));
+    $('#tabOut').setAttribute('aria-selected', String(which === 'outbox'));
+    render();
+  };
+}
+
+// A fax PDF is only shown or saved once the app confirms it can get it, so a
+// problem is said out loud instead of a blank viewer or a download that never
+// starts. (The first byte is enough: the server caches the whole PDF.)
+async function available(folder, id) {
+  const r = await fetch(pdfUrl(folder, id), { headers: { Range: 'bytes=0-0' } });
+  if (r.ok || r.status === 206) return;
+  const j = await r.json().catch(() => ({}));
+  throw new Error(j.error || 'HTTP ' + r.status);
+}
+const note = (text) => { $('#listMsg').textContent = text; clearTimeout(note.t); note.t = setTimeout(() => { $('#listMsg').textContent = ''; }, 8000); };
+
+async function download(folder, id, btn) {
+  const label = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Saving…';
+  try {
+    await available(folder, id);
+    const a = el('a'); a.href = pdfUrl(folder, id) + '&download=1'; a.setAttribute('download', '');
+    document.body.appendChild(a); a.click(); a.remove();
+  } catch (e) { note('Couldn’t download that fax: ' + e.message); }
+  finally { setTimeout(() => { btn.disabled = false; btn.textContent = label; }, 1200); }
+}
+
+// ---- viewer ----
+async function openView(folder, id) {
+  try { await available(folder, id); }
+  catch (e) { note('Couldn’t open that fax: ' + e.message); return; }
+  $('#vframe').src = pdfUrl(folder, id);
+  $('#vdl').onclick = (ev) => { ev.preventDefault(); download(folder, id, $('#vdl')); };
+  $('#view').hidden = false;
+  $('#vx').focus();
+}
+function closeView() { $('#view').hidden = true; $('#vframe').src = 'about:blank'; }
+$('#vx').onclick = closeView;
+$('#view').onclick = (e) => { if (e.target === $('#view')) closeView(); };
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('#view').hidden) closeView(); });
+
+// ---- send ----
+const msg = (text, cls = '') => { $('#sendMsg').textContent = text; $('#sendMsg').className = 'msg ' + cls; };
+$('#sendBtn').onclick = () => { $('#compose').hidden = false; msg(''); $('#to').focus(); };
+$('#cancel').onclick = () => { $('#compose').hidden = true; };
+$('#pick').onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('#file').click(); } };
+$('#file').onchange = () => {
+  const f = $('#file').files[0];
+  $('#fileName').textContent = f ? f.name + ' · ' + Math.max(1, Math.round(f.size / 1024)) + ' KB' : 'No file chosen. PDF only, up to 20 MB.';
+};
+$('#go').onclick = async () => {
+  const f = $('#file').files[0], to = $('#to').value.trim(), name = $('#toName').value.trim();
+  if (digits(to).length < 10) { msg('Enter a full fax number.', 'err'); $('#to').focus(); return; }
+  if (!f) { msg('Choose a PDF to send.', 'err'); return; }
+  if (!/\.pdf$/i.test(f.name) && f.type !== 'application/pdf') { msg('Only PDF files can be faxed.', 'err'); return; }
+  if (f.size > 20 * 1024 * 1024) { msg('That file is over 20 MB.', 'err'); return; }
+  if (!(await ask('Send this fax?', '"' + f.name + '" to ' + pretty(to) + (name ? ' (' + name + ')' : '') +
+      '.\nThis places a real fax call from your fax number.', 'Send fax'))) return;
+  $('#go').disabled = true; msg('Sending…');
+  try {
+    const r = await fetch('/api/fax/send?to=' + encodeURIComponent(to) + '&name=' + encodeURIComponent(name),
+      { method: 'POST', headers: { 'Content-Type': 'application/pdf' }, body: f });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || j.error) throw new Error(j.error || 'HTTP ' + r.status);
+    msg('Queued. Its status shows under Sent.', 'ok');
+    $('#to').value = ''; $('#toName').value = ''; $('#file').value = ''; $('#file').onchange();
+    $('#tabOut').click();
+    load();
+  } catch (e) { msg(e.message, 'err'); }
+  finally { $('#go').disabled = false; }
+};
+
+load();
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') load(); });
+</script>
+<script src="/dialpad.js"></script>

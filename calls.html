@@ -1,0 +1,270 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Calls</title>
+<style>
+:root{
+  --bg:#f6f7f9; --panel:#fff; --ink:#14171c; --muted:#6b7480; --line:#e3e6ea;
+  --accent:#2f6df6; --urgent:#d93025; --high:#e8710a;
+  --ok:#1a7f37; --shadow:0 1px 2px rgba(0,0,0,.05),0 4px 12px rgba(0,0,0,.05);
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){
+  --bg:#0f1216; --panel:#171b21; --ink:#e6e9ee; --muted:#8b95a1; --line:#252b33;
+  --accent:#5b8dff; --urgent:#ff6b5e; --high:#ffa04d;
+  --ok:#4ade80; --shadow:0 1px 2px rgba(0,0,0,.4);
+}}
+:root[data-theme=dark]{
+  --bg:#0f1216; --panel:#171b21; --ink:#e6e9ee; --muted:#8b95a1; --line:#252b33;
+  --accent:#5b8dff; --urgent:#ff6b5e; --high:#ffa04d;
+  --ok:#4ade80; --shadow:0 1px 2px rgba(0,0,0,.4);
+}
+:root{color-scheme:light dark}
+:root[data-theme=light]{color-scheme:light}
+:root[data-theme=dark]{color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font:14px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+header{position:sticky;top:0;z-index:5;background:var(--panel);border-bottom:1px solid var(--line)}
+.bar{display:flex;align-items:center;gap:12px;padding:10px 16px}
+.bar2{display:flex;align-items:center;gap:8px;padding:0 16px 10px;flex-wrap:wrap}
+h1{font-size:15px;margin:0;font-weight:650;letter-spacing:-.01em}
+.grow{flex:1}
+.meta{color:var(--muted);font-size:12px}
+a.navlink{color:var(--muted);text-decoration:none;font-size:13px;padding:6px 10px;
+  border:1px solid var(--line);border-radius:7px}
+a.navlink:hover{color:var(--ink);border-color:var(--accent)}
+button,select,input{font:inherit;border:1px solid var(--line);background:var(--panel);
+  color:var(--ink);padding:6px 10px;border-radius:7px}
+button{cursor:pointer}
+button:hover{border-color:var(--accent)}
+button:disabled{opacity:.5;cursor:not-allowed}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+input[type=search]{min-width:200px;background:var(--bg)}
+main{padding:16px;max-width:980px;margin:0 auto;display:grid;gap:9px}
+.stats{display:flex;gap:18px;flex-wrap:wrap;padding:4px 2px 6px}
+.stat .n{font-size:22px;font-weight:640;font-variant-numeric:tabular-nums}
+.stat .k{font-size:12px;color:var(--muted)}
+.stat.bad .n{color:var(--urgent)}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:11px;
+  box-shadow:var(--shadow);padding:10px 14px}
+.card.missed{border-left:3px solid var(--urgent)}
+.top{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+.dir{width:22px;text-align:center;font-weight:700;color:var(--muted)}
+.dir.in{color:var(--accent)}
+.who{font-weight:650;font-variant-numeric:tabular-nums}
+.tag{font-size:11px;padding:2px 8px;border-radius:999px;border:1px solid var(--line);
+  color:var(--muted);text-transform:uppercase;letter-spacing:.04em;font-weight:600}
+.tag.miss{color:var(--urgent);border-color:var(--urgent)}
+.tag.tense{color:var(--high);border-color:var(--high)}
+a.tel{color:var(--accent);text-decoration:none;font-size:13px;padding:4px 9px;
+  border:1px solid var(--line);border-radius:7px}
+a.tel:hover{border-color:var(--accent)}
+.more{margin-top:9px;display:grid;gap:8px}
+audio{width:100%;height:36px}
+.sum{font-size:13.5px}
+.kv{display:grid;grid-template-columns:86px 1fr;gap:3px 10px;font-size:13px}
+.kv .k{color:var(--muted)}
+.kv ul{margin:0;padding-left:18px}
+.tx{white-space:pre-wrap;word-break:break-word;background:var(--bg);border:1px solid var(--line);
+  border-radius:8px;padding:10px 12px;font-size:13px;color:var(--muted);display:none}
+.tx.open{display:block}
+.acts{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.note{font-size:12px;color:var(--muted)}
+.err{color:var(--urgent);font-size:13px}
+.empty{text-align:center;color:var(--muted);padding:48px 20px}
+</style>
+
+<script src="/nav.js"></script>
+<header>
+  <div class="bar">
+    <h1>Calls</h1>
+    <span class="meta" id="count"></span>
+    <span class="grow"></span>
+    <span class="meta" id="stat"></span>
+  </div>
+  <div class="bar2">
+    <input type="search" id="q" placeholder="Search name or number">
+    <select id="days">
+      <option value="7">7 days</option>
+      <option value="30" selected>30 days</option>
+      <option value="90">90 days</option>
+    </select>
+    <select id="dir">
+      <option value="">In &amp; out</option>
+      <option value="in">Incoming</option>
+      <option value="out">Outgoing</option>
+    </select>
+    <label class="meta"><input type="checkbox" id="missed"> Missed only</label>
+    <label class="meta"><input type="checkbox" id="rec"> Recorded only</label>
+  </div>
+</header>
+<main id="app"><div class="empty">Loading&hellip;</div></main>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const el = (tag, cls, text) => {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text != null) e.textContent = text;
+  return e;
+};
+const pretty = (n) => {
+  const d = String(n || '').replace(/\D/g, '').slice(-10);
+  return d.length === 10 ? '(' + d.slice(0,3) + ') ' + d.slice(3,6) + '-' + d.slice(6) : (n || 'unknown');
+};
+const dur = (s) => s >= 60 ? Math.floor(s / 60) + 'm ' + String(s % 60).padStart(2, '0') + 's' : s + 's';
+const saved = localStorage.getItem('theme');
+if (saved) document.documentElement.dataset.theme = saved;
+
+let calls = [];
+let busy = false;
+
+function summaryBlock(t) {
+  const wrap = el('div', 'more');
+  if (t.summary) {
+    wrap.appendChild(el('div', 'sum', t.summary.summary));
+    const kv = el('div', 'kv');
+    kv.appendChild(el('div', 'k', 'outcome'));
+    kv.appendChild(el('div', '', t.summary.outcome || '—'));
+    if ((t.summary.follow_ups || []).length) {
+      kv.appendChild(el('div', 'k', 'follow-ups'));
+      const ul = el('ul');
+      for (const f of t.summary.follow_ups) ul.appendChild(el('li', '', f));
+      const cell = el('div'); cell.appendChild(ul); kv.appendChild(cell);
+    }
+    if (t.summary.site_or_job) {
+      kv.appendChild(el('div', 'k', 'site / job'));
+      kv.appendChild(el('div', '', t.summary.site_or_job));
+    }
+    wrap.appendChild(kv);
+  } else if (t.summaryError) {
+    wrap.appendChild(el('div', 'err', 'Summary failed: ' + t.summaryError));
+  } else if (!String(t.text || '').trim()) {
+    wrap.appendChild(el('div', 'note', 'No speech detected in this recording.'));
+  }
+  const tx = el('div', 'tx', t.text || '');
+  const acts = el('div', 'acts');
+  if (t.text) {
+    const tog = el('button', '', 'Show transcript');
+    tog.onclick = () => { tx.classList.toggle('open');
+      tog.textContent = tx.classList.contains('open') ? 'Hide transcript' : 'Show transcript'; };
+    acts.appendChild(tog);
+  }
+  acts.appendChild(el('span', 'note', 'Machine transcription of both sides, no speaker labels. Names and places are often wrong.'));
+  wrap.appendChild(acts);
+  wrap.appendChild(tx);
+  return wrap;
+}
+
+function card(c) {
+  const box = el('div', 'card' + (c.answered ? '' : ' missed'));
+  const top = el('div', 'top');
+  const dir = el('span', 'dir ' + c.direction, c.direction === 'in' ? '↙' : '↗');
+  dir.title = c.direction === 'in' ? 'Incoming' : 'Outgoing';
+  top.appendChild(dir);
+  top.appendChild(el('span', 'who', c.name || pretty(c.number)));
+  if (c.name && c.number) top.appendChild(el('span', 'meta', pretty(c.number)));
+  if (c.role && c.role !== 'unknown') top.appendChild(el('span', 'tag', c.role));
+  if (c.internal) top.appendChild(el('span', 'tag', 'internal'));
+  if (!c.answered) top.appendChild(el('span', 'tag miss', c.direction === 'in' ? 'missed' : 'no answer'));
+  else top.appendChild(el('span', 'meta', dur(c.seconds)));
+  if (c.transcript && c.transcript.summary && c.transcript.summary.tone === 'tense')
+    top.appendChild(el('span', 'tag tense', 'tense'));
+  top.appendChild(el('span', 'grow'));
+  top.appendChild(el('span', 'meta', new Date(c.at).toLocaleString()));
+
+  if (c.number && !c.internal) {
+    const a = el('a', 'tel', 'Call back');
+    a.href = 'tel:' + c.number;             // fallback if dialpad.js isn't loaded
+    a.title = 'Call ' + pretty(c.number);
+    // In-app phone when it's connected; dialpad.js falls back to the OS handoff.
+    a.onclick = (e) => { if (window.switchboardCall) { e.preventDefault(); window.switchboardCall(c.number); } };
+    top.appendChild(a);
+  }
+  box.appendChild(top);
+
+  if (c.recording) {
+    const more = el('div', 'more');
+    const audio = el('audio');
+    audio.controls = true;
+    audio.preload = 'none';
+    audio.src = '/api/recording/audio?id=' + encodeURIComponent(c.recording);
+    more.appendChild(audio);
+
+    const holder = el('div');
+    if (c.transcript) holder.appendChild(summaryBlock(c.transcript));
+    else {
+      const acts = el('div', 'acts');
+      const go = el('button', 'primary', 'Transcribe & summarize');
+      go.onclick = async () => {
+        if (busy) { $('#stat').textContent = 'one transcription at a time'; return; }
+        busy = true; go.disabled = true; go.textContent = 'Listening…';
+        $('#stat').textContent = 'transcribing…';
+        try {
+          const r = await (await fetch('/api/recording/transcribe', { method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: c.recording }) })).json();
+          if (r.error) throw new Error(r.error);
+          c.transcript = r;
+          holder.textContent = '';
+          holder.appendChild(summaryBlock(r));
+          $('#stat').textContent = '';
+        } catch (e) {
+          $('#stat').textContent = 'failed: ' + e.message;
+          go.disabled = false; go.textContent = 'Transcribe & summarize';
+        } finally { busy = false; }
+      };
+      acts.appendChild(go);
+      acts.appendChild(el('span', 'note', 'Runs locally. Longer calls take a minute or more.'));
+      holder.appendChild(acts);
+    }
+    more.appendChild(holder);
+    box.appendChild(more);
+  }
+  return box;
+}
+
+function render() {
+  const q = $('#q').value.trim().toLowerCase();
+  const qd = q.replace(/\D/g, '');
+  const dir = $('#dir').value;
+  let list = calls;
+  if (q) list = list.filter(c => (c.name || '').toLowerCase().includes(q) || (qd && String(c.number).includes(qd)));
+  if (dir) list = list.filter(c => c.direction === dir);
+  if ($('#missed').checked) list = list.filter(c => !c.answered);
+  if ($('#rec').checked) list = list.filter(c => c.recording);
+
+  const app = $('#app');
+  app.textContent = '';
+  const stats = el('div', 'stats');
+  const stat = (n, k, cls) => { const s = el('div', 'stat ' + (cls || ''));
+    s.appendChild(el('div', 'n', String(n))); s.appendChild(el('div', 'k', k)); stats.appendChild(s); };
+  const missedIn = calls.filter(c => c.direction === 'in' && !c.answered).length;
+  stat(calls.length, 'calls');
+  stat(calls.filter(c => c.answered).length, 'connected');
+  stat(missedIn, 'missed incoming', missedIn ? 'bad' : '');
+  stat(calls.filter(c => c.recording).length, 'recorded');
+  stat(Math.round(calls.reduce((s, c) => s + (c.answered ? c.seconds : 0), 0) / 60), 'minutes talked');
+  app.appendChild(stats);
+
+  $('#count').textContent = list.length + ' shown';
+  if (!list.length) { app.appendChild(el('div', 'empty', 'No calls match.')); return; }
+  for (const c of list) app.appendChild(card(c));
+}
+
+async function load() {
+  $('#stat').textContent = 'loading…';
+  const d = await (await fetch('/api/calls?days=' + $('#days').value)).json();
+  calls = d.calls || [];
+  $('#stat').textContent = '';
+  render();
+}
+
+$('#q').oninput = render;
+$('#dir').onchange = render;
+$('#missed').onchange = render;
+$('#rec').onchange = render;
+$('#days').onchange = load;
+load();
+</script>
+<script src="/dialpad.js"></script>

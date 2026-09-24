@@ -1,0 +1,203 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Voicemail</title>
+<style>
+:root{
+  --bg:#f6f7f9; --panel:#fff; --ink:#14171c; --muted:#6b7480; --line:#e3e6ea;
+  --accent:#2f6df6; --urgent:#d93025; --high:#e8710a;
+  --ok:#1a7f37; --shadow:0 1px 2px rgba(0,0,0,.05),0 4px 12px rgba(0,0,0,.05);
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){
+  --bg:#0f1216; --panel:#171b21; --ink:#e6e9ee; --muted:#8b95a1; --line:#252b33;
+  --accent:#5b8dff; --urgent:#ff6b5e; --high:#ffa04d;
+  --ok:#4ade80; --shadow:0 1px 2px rgba(0,0,0,.4);
+}}
+:root[data-theme=dark]{
+  --bg:#0f1216; --panel:#171b21; --ink:#e6e9ee; --muted:#8b95a1; --line:#252b33;
+  --accent:#5b8dff; --urgent:#ff6b5e; --high:#ffa04d;
+  --ok:#4ade80; --shadow:0 1px 2px rgba(0,0,0,.4);
+}
+:root{color-scheme:light dark}
+:root[data-theme=light]{color-scheme:light}
+:root[data-theme=dark]{color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font:14px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+header{position:sticky;top:0;z-index:5;background:var(--panel);
+  border-bottom:1px solid var(--line);display:flex;align-items:center;gap:12px;padding:10px 16px}
+h1{font-size:15px;margin:0;font-weight:650;letter-spacing:-.01em}
+.grow{flex:1}
+.meta{color:var(--muted);font-size:12px}
+a.navlink{color:var(--muted);text-decoration:none;font-size:13px;padding:6px 10px;
+  border:1px solid var(--line);border-radius:7px}
+a.navlink:hover{color:var(--ink);border-color:var(--accent)}
+button{font:inherit;border:1px solid var(--line);background:var(--panel);color:var(--ink);
+  padding:6px 11px;border-radius:7px;cursor:pointer}
+button:hover{border-color:var(--accent)}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+button:disabled{opacity:.5;cursor:not-allowed}
+main{padding:16px;max-width:940px;margin:0 auto;display:grid;gap:12px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:11px;
+  box-shadow:var(--shadow);padding:12px 14px}
+.card.urgent{border-left:3px solid var(--urgent)}
+.card.high{border-left:3px solid var(--high)}
+.top{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-bottom:8px}
+.who{font-weight:650}
+.tag{font-size:11px;padding:2px 8px;border-radius:999px;border:1px solid var(--line);
+  color:var(--muted);text-transform:uppercase;letter-spacing:.04em;font-weight:600}
+.tag.urgent{color:var(--urgent);border-color:var(--urgent)}
+.tag.high{color:var(--high);border-color:var(--high)}
+.sum{margin-bottom:8px}
+.kv{display:grid;grid-template-columns:92px 1fr;gap:4px 10px;font-size:13px;margin-bottom:9px}
+.kv .k{color:var(--muted)}
+.tx{white-space:pre-wrap;word-break:break-word;background:var(--bg);
+  border:1px solid var(--line);border-radius:8px;padding:10px 12px;font-size:13px;
+  color:var(--muted);display:none}
+.tx.open{display:block}
+.acts{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.empty{text-align:center;color:var(--muted);padding:56px 20px}
+.note{font-size:12px;color:var(--muted)}
+.err{color:var(--urgent)}
+a.tel{color:var(--accent);text-decoration:none;font-size:13px;padding:4px 9px;
+  border:1px solid var(--line);border-radius:7px}
+a.tel:hover{border-color:var(--accent)}
+.warn{font-size:12px;color:var(--muted);border-top:1px solid var(--line);
+  margin-top:9px;padding-top:8px;line-height:1.5}
+</style>
+
+<script src="/nav.js"></script>
+<header>
+  <h1>Voicemail</h1>
+  <span class="meta" id="count"></span>
+  <span class="grow"></span>
+  <span class="meta" id="stat"></span>
+</header>
+<main id="app"><div class="empty">Loading&hellip;</div></main>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const pretty = (n) => {
+  const d = String(n || '').replace(/\D/g, '').slice(-10);
+  return d.length === 10 ? '(' + d.slice(0,3) + ') ' + d.slice(3,6) + '-' + d.slice(6) : (n || '');
+};
+const el = (tag, cls, text) => {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text != null) e.textContent = text;
+  return e;
+};
+const saved = localStorage.getItem('theme');
+if (saved) document.documentElement.dataset.theme = saved;
+
+let busy = false;
+
+function card(v) {
+  const c = el('div', 'card ' + ((v.summary && v.summary.urgency) || ''));
+
+  const top = el('div', 'top');
+  top.appendChild(el('span', 'who', pretty(v.from)));
+  if (v.name) top.appendChild(el('span', 'meta', v.name));
+  top.appendChild(el('span', 'tag', v.seconds + 's'));
+  if (v.folder && v.folder !== 'new') top.appendChild(el('span', 'tag', v.folder));
+  if (v.summary) {
+    top.appendChild(el('span', 'tag ' + v.summary.urgency, v.summary.urgency));
+    if (v.summary.callback_needed) top.appendChild(el('span', 'tag high', 'call back'));
+  }
+  top.appendChild(el('span', 'grow'));
+  top.appendChild(el('span', 'meta', new Date(v.at).toLocaleString()));
+  if (String(v.from || '').replace(/\D/g, '').length >= 10) {
+    const a = el('a', 'tel', 'Call back');
+    const number = '+' + String(v.from).replace(/\D/g, '').replace(/^(?=\d{10}$)/, '1');
+    a.href = 'tel:' + number;               // fallback if dialpad.js isn't loaded
+    // In-app phone when it's connected; dialpad.js falls back to the OS handoff.
+    a.onclick = (e) => { if (window.switchboardCall) { e.preventDefault(); window.switchboardCall(number); } };
+    top.appendChild(a);
+  }
+  c.appendChild(top);
+
+  if (v.summary) {
+    c.appendChild(el('div', 'sum', v.summary.summary));
+    const kv = el('div', 'kv');
+    kv.appendChild(el('div', 'k', 'wants'));
+    kv.appendChild(el('div', '', v.summary.caller_wants || '—'));
+    if (v.summary.site_or_job) {
+      kv.appendChild(el('div', 'k', 'site / job'));
+      kv.appendChild(el('div', '', v.summary.site_or_job));
+    }
+    c.appendChild(kv);
+  } else if (v.summaryError) {
+    c.appendChild(el('div', 'err', 'Summary failed: ' + v.summaryError));
+  }
+
+  const tx = el('div', 'tx', v.text || '');
+  const acts = el('div', 'acts');
+
+  if (v.text) {
+    const toggle = el('button', '', 'Show transcript');
+    toggle.onclick = () => {
+      tx.classList.toggle('open');
+      toggle.textContent = tx.classList.contains('open') ? 'Hide transcript' : 'Show transcript';
+    };
+    acts.appendChild(toggle);
+    const re = el('button', '', 'Re-transcribe');
+    re.onclick = () => transcribe(v, re, true);
+    acts.appendChild(re);
+    acts.appendChild(el('span', 'note', v.whisper + ' · ' + v.duration + 's audio'));
+  } else {
+    const go = el('button', 'primary', 'Transcribe');
+    go.onclick = () => transcribe(v, go, false);
+    acts.appendChild(go);
+    acts.appendChild(el('span', 'note', 'Runs locally. Roughly 10-60s.'));
+  }
+
+  const audio = el('audio');
+  audio.controls = true;
+  audio.preload = 'none';
+  audio.style.cssText = 'width:100%;height:36px;margin-bottom:8px';
+  audio.src = '/api/voicemail/audio?box_id=' + encodeURIComponent(v.box_id) +
+    '&media_id=' + encodeURIComponent(v.media_id);
+  c.appendChild(audio);
+  c.appendChild(acts);
+  c.appendChild(tx);
+
+  if (v.text) {
+    c.appendChild(el('div', 'warn',
+      'Machine transcription — names, places and equipment terms are often wrong. Treat it as a lead, not a record.'));
+  }
+  return c;
+}
+
+async function transcribe(v, btn, force) {
+  if (busy) { $('#stat').textContent = 'one at a time — transcription is CPU-heavy'; return; }
+  busy = true;
+  btn.disabled = true;
+  const was = btn.textContent;
+  btn.textContent = 'Listening…';
+  $('#stat').textContent = 'transcribing…';
+  try {
+    const r = await (await fetch('/api/voicemail/transcribe', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ box_id: v.box_id, media_id: v.media_id, force })
+    })).json();
+    if (r.error) { $('#stat').textContent = 'failed: ' + r.error; btn.disabled = false; btn.textContent = was; }
+    else { $('#stat').textContent = ''; await load(); }
+  } catch (e) {
+    $('#stat').textContent = 'failed: ' + e.message;
+    btn.disabled = false; btn.textContent = was;
+  } finally { busy = false; }
+}
+
+async function load() {
+  const d = await (await fetch('/api/voicemails')).json();
+  const list = d.voicemails || [];
+  $('#count').textContent = list.length + ' message' + (list.length === 1 ? '' : 's');
+  const app = $('#app');
+  app.textContent = '';
+  if (!list.length) { app.appendChild(el('div', 'empty', 'No voicemail.')); return; }
+  for (const v of list) app.appendChild(card(v));
+}
+
+load();
+</script>
+<script src="/dialpad.js"></script>

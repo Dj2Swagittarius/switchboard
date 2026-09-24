@@ -1,0 +1,1518 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Phone</title>
+<!--
+  The in-app phone. Runs as an overlay inside the main window (see
+  createPhoneView in electron/main.mjs), laid out like a typical softphone:
+    panel  dialer, or a call expanded to full controls
+    mini   compact call card (outgoing / incoming / active)
+  The page is transparent; the card sits inside a 12px margin that holds its
+  shadow. The page decides its own layout and tells the app via phoneHost.
+-->
+<style>
+:root{
+  --card:rgba(250,251,255,.95); --ink:#10131a; --muted:#5b6474; --line:rgba(20,30,60,.10);
+  --key:rgba(20,30,60,.05); --key-h:rgba(20,30,60,.09); --edge:rgba(255,255,255,.9);
+  --accent:#3b6cf6; --urgent:#e5484d; --warn:#e8710a; --ok:#1f9d55;
+  --bar:linear-gradient(135deg,#34466a,#3b4f7a); --bar-ink:#fff;
+  --shadow:0 12px 32px rgba(30,40,80,.22),0 2px 6px rgba(30,40,80,.12);
+  color-scheme:light;
+}
+:root.dark{
+  --card:rgba(20,24,36,.94); --ink:#e9ecf3; --muted:#949db0; --line:rgba(255,255,255,.08);
+  --key:rgba(255,255,255,.05); --key-h:rgba(255,255,255,.10); --edge:rgba(255,255,255,.10);
+  --accent:#6b95ff; --urgent:#ff5c5c; --warn:#ffa04d; --ok:#34c759;
+  --bar:linear-gradient(135deg,#1e2740,#2a2f55); --bar-ink:#e9ecf3;
+  --shadow:0 14px 36px rgba(0,0,0,.55),0 2px 6px rgba(0,0,0,.35);
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0;background:transparent}
+body{padding:12px;color:var(--ink);user-select:none;
+  font:14px/1.4 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex:none}
+
+.card{height:100%;display:flex;flex-direction:column;background:var(--card);border:1px solid var(--edge);
+  border-radius:16px;box-shadow:var(--shadow);overflow:hidden}
+
+/* Title bar: drag handle, state colour, window buttons. */
+.bar{display:flex;align-items:center;gap:8px;height:40px;padding:0 6px 0 10px;flex:none;cursor:grab;
+  background:var(--bar);color:var(--bar-ink)}
+.bar.dragging{cursor:grabbing}
+.bar.out{background:linear-gradient(135deg,#3b6cf6,#6a5cf6);color:#fff}
+.bar.in{background:linear-gradient(135deg,#6a5cf6,#b04cf0);color:#fff;animation:pulse 1.4s ease-in-out infinite}
+.bar.active{background:linear-gradient(135deg,#17a34a,#1fb86a);color:#fff}
+.bar.held{background:linear-gradient(135deg,#d97706,#e8920a);color:#fff}
+@keyframes pulse{50%{filter:brightness(1.18)}}
+.grip{opacity:.7;display:flex}
+.grip svg{width:14px;height:14px;fill:currentColor;stroke:none}
+.dot{width:8px;height:8px;border-radius:50%;background:#8b95a1;flex:none}
+.dot.ok{background:#34c759} .dot.warn{background:#ffa04d} .dot.bad{background:#ff5c5c}
+.bar:not(.idle) .dot{display:none}
+.title{flex:1;font-weight:650;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  font-variant-numeric:tabular-nums}
+.ib{width:30px;height:30px;border:0;border-radius:8px;background:none;color:inherit;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;opacity:.85}
+.ib:hover{background:rgba(255,255,255,.16);opacity:1}
+.ib[hidden]{display:none}
+.ib svg{width:16px;height:16px}
+
+.screen{flex:1;display:none;flex-direction:column;min-height:0}
+.screen.on{display:flex}
+
+/* Dialer */
+.search{margin:12px 14px 6px;position:relative}
+.search input{width:100%;height:42px;border-radius:11px;border:1px solid var(--line);background:var(--key);
+  color:var(--ink);font:500 15px ui-sans-serif,system-ui,sans-serif;padding:0 12px;outline:none;
+  font-variant-numeric:tabular-nums;user-select:text}
+.search input:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(107,149,255,.22)}
+.match{font-size:12px;color:var(--muted);min-height:16px;padding:0 16px}
+.list{flex:1;min-height:80px;overflow:auto;padding:2px 8px 6px;border-bottom:1px solid var(--line)}
+.lh{font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--muted);padding:6px 8px 4px;text-transform:uppercase}
+.row{display:flex;align-items:center;gap:10px;width:100%;padding:7px 8px;border:0;border-radius:10px;background:none;
+  color:var(--ink);cursor:pointer;text-align:left;font:inherit}
+.row:hover{background:var(--key-h)}
+.row .ic{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  background:var(--key);color:var(--accent);flex:none}
+.row .ic.miss{color:var(--urgent)}
+.row .ic svg{width:15px;height:15px}
+.row b{display:block;font-weight:600;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row span{display:block;font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+.row .tx{flex:1;min-width:0;color:var(--ink)}
+.row time{font-size:11px;color:var(--muted);flex:none}
+.empty{color:var(--muted);font-size:12.5px;padding:10px 8px}
+
+.keys{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;padding:10px 16px 4px}
+.keys button{height:50px;border-radius:12px;border:0;background:none;color:var(--ink);cursor:pointer;
+  font:500 24px/1 ui-sans-serif,system-ui,sans-serif;display:flex;flex-direction:column;align-items:center;
+  justify-content:center;gap:2px}
+.keys button:hover{background:var(--key-h)}
+.keys button:active{background:var(--key-h);transform:scale(.97)}
+.keys small{font:600 9px/1 ui-sans-serif,system-ui,sans-serif;letter-spacing:.14em;color:var(--muted);min-height:9px}
+.go{display:flex;justify-content:center;align-items:center;gap:12px;padding:8px 16px 4px}
+.pill{height:42px;min-width:124px;padding:0 20px;border-radius:12px;border:0;color:#fff;cursor:pointer;
+  font:650 15px ui-sans-serif,system-ui,sans-serif;display:inline-flex;align-items:center;justify-content:center;gap:8px}
+.pill:disabled{opacity:.4;cursor:not-allowed}
+.pill.green{background:linear-gradient(135deg,#17a34a,#1fb86a);box-shadow:0 4px 14px rgba(31,184,106,.3)}
+.pill.red{background:linear-gradient(135deg,#e5484d,#f0565b);box-shadow:0 4px 14px rgba(229,72,77,.3)}
+.del{width:42px;height:42px;border-radius:12px;border:0;background:var(--key);color:var(--muted);cursor:pointer;
+  display:flex;align-items:center;justify-content:center}
+.del:hover{background:var(--key-h);color:var(--ink)}
+.err{color:var(--urgent);font-size:12.5px;text-align:center;min-height:18px;padding:4px 12px 8px}
+
+/* Expanded call */
+.who-box{text-align:center;padding:22px 16px 8px}
+.avatar{width:72px;height:72px;border-radius:50%;margin:0 auto 10px;display:flex;align-items:center;justify-content:center;
+  font-size:26px;font-weight:650;color:#fff;background:linear-gradient(135deg,#5b8dff,#8b5cf6)}
+.who{font-size:19px;font-weight:650;word-break:break-word}
+.num{color:var(--muted);font-variant-numeric:tabular-nums;font-size:13px}
+.what{color:var(--muted);font-size:13px;margin-top:6px;font-variant-numeric:tabular-nums}
+.grow{flex:1}
+.ctl{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;padding:8px 14px;border-top:1px solid var(--line)}
+.ctl button{height:66px;border:0;border-radius:12px;background:none;color:var(--ink);cursor:pointer;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;font:500 12px ui-sans-serif,system-ui,sans-serif}
+.ctl button svg{width:22px;height:22px}
+.ctl button:hover{background:var(--key-h)}
+.ctl button.on{background:var(--accent);color:#fff}
+.ctl button:disabled{opacity:.35;cursor:not-allowed}
+.dtmf{display:none}
+.dtmf.on{display:grid}
+.ctl button.ghost{visibility:hidden}
+.ctl button[hidden]{display:none}
+
+/* Transfer picker, inside the expanded call */
+.xfer{display:none;flex-direction:column;flex:1;min-height:0}
+#s-call.xferring .xfer{display:flex}
+#s-call.xferring > :not(.xfer){display:none}
+.xhead{padding:14px 16px 2px;font-size:13px;color:var(--muted)}
+.xhead b{color:var(--ink)}
+.xfer .list{border-bottom:1px solid var(--line)}
+.row.pick{background:var(--sel,rgba(107,149,255,.16))}
+.xgo{display:flex;justify-content:center;gap:10px;padding:12px 16px 4px}
+.pill.blue{background:linear-gradient(135deg,#5b8dff,#7c5cf6);box-shadow:0 4px 14px rgba(91,141,255,.3)}
+.pill.plain{background:var(--key);color:var(--ink);box-shadow:none;min-width:96px}
+.ok-note{color:var(--ok);font-size:12.5px;text-align:center;padding:0 12px}
+.ok-note:empty{display:none}
+.row .ic.park{color:var(--warn)}
+.xgo .pill{min-width:0;flex:1;padding:0 12px}
+.xgo .pill[hidden]{display:none}
+
+/* Two calls (consult / conference): one row per party */
+.legs{display:none;flex-direction:column;gap:8px;padding:18px 14px 6px}
+#s-call.multi .legs{display:flex}
+#s-call.multi .who-box{display:none}
+.leg{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:12px;background:var(--key);border:1px solid var(--line)}
+.leg.live{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset}
+.leg .lav{width:38px;height:38px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;
+  font-weight:700;font-size:13px;color:#fff;background:linear-gradient(135deg,#5b8dff,#8b5cf6)}
+.leg.held .lav{background:linear-gradient(135deg,#d97706,#e8920a)}
+.leg .ltx{flex:1;min-width:0}
+.leg b{display:block;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.leg span{display:block;font-size:12.5px;color:var(--muted);font-variant-numeric:tabular-nums}
+.leg .lx{width:32px;height:32px;border-radius:9px;border:0;cursor:pointer;color:#fff;flex:none;
+  background:linear-gradient(135deg,#e5484d,#f0565b);display:flex;align-items:center;justify-content:center}
+.leg .lx svg{width:15px;height:15px}
+.multi-acts{display:none;justify-content:center;gap:8px;padding:6px 14px 0}
+#s-call.multi .multi-acts{display:flex}
+.multi-acts .pill{min-width:0;flex:1;padding:0 10px;font-size:14px}
+.multi-acts .pill[hidden]{display:none}
+.endrow{display:flex;justify-content:center;gap:12px;padding:6px 16px 16px}
+
+/* Mini card */
+.mini{flex:1;display:none;align-items:center;gap:10px;padding:0 12px 0 14px}
+.mini.on{display:flex}
+.mini .tx{flex:1;min-width:0}
+.mini b{display:block;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mini span{display:block;color:var(--muted);font-size:12.5px;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rb{width:38px;height:38px;border-radius:10px;border:1px solid var(--line);background:var(--key);color:var(--ink);
+  cursor:pointer;display:flex;align-items:center;justify-content:center;flex:none}
+.rb:hover{background:var(--key-h)}
+.rb.on{background:var(--accent);border-color:transparent;color:#fff}
+.rb.red{background:linear-gradient(135deg,#e5484d,#f0565b);border-color:transparent;color:#fff}
+.rb.green{background:linear-gradient(135deg,#17a34a,#1fb86a);border-color:transparent;color:#fff}
+.rb[hidden]{display:none}
+
+/* Setup / off */
+.note{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:24px;gap:8px}
+.note p{color:var(--muted);line-height:1.55;margin:0}
+.note .pill{background:linear-gradient(135deg,#5b8dff,#7c5cf6);margin-top:8px}
+</style>
+
+<div class="card" id="card">
+  <div class="bar idle" id="bar">
+    <span class="grip"><svg viewBox="0 0 24 24"><circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/></svg></span>
+    <span class="dot" id="dot"></span>
+    <span class="title" id="title">Phone</span>
+    <button class="ib" id="expBtn" title="Expand" hidden><svg viewBox="0 0 24 24"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"/></svg></button>
+    <button class="ib" id="minBtn" title="Minimize" hidden><svg viewBox="0 0 24 24"><path d="M5 18h14"/></svg></button>
+    <button class="ib" id="xBtn" title="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+  </div>
+
+  <!-- not configured -->
+  <section class="screen" id="s-setup">
+    <div class="note">
+      <div class="avatar">&#9742;</div>
+      <b>Phone not set up</b>
+      <p>Add your SIP server and phone device on the Account page.</p>
+      <button class="pill" id="goSetup">Open Account</button>
+    </div>
+  </section>
+
+  <!-- switched off in Settings -->
+  <section class="screen" id="s-off">
+    <div class="note">
+      <div class="avatar">&#9742;</div>
+      <b>Phone is off</b>
+      <p>Calls won't ring here. Turn it back on in Settings → Phone.</p>
+      <button class="pill" id="goSettings">Open Settings</button>
+    </div>
+  </section>
+
+  <!-- dialer -->
+  <section class="screen" id="s-idle">
+    <div class="search"><input id="dial" placeholder="Enter number or name" autocomplete="off" spellcheck="false"></div>
+    <div class="match" id="match"></div>
+    <div class="list" id="list"></div>
+    <div class="keys" id="keys"></div>
+    <div class="go">
+      <span style="width:42px"></span>
+      <button class="pill green" id="callBtn" disabled><svg viewBox="0 0 24 24"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2"/></svg>Call</button>
+      <button class="del" id="delBtn" title="Delete"><svg viewBox="0 0 24 24"><path d="M21 5H9l-6 7 6 7h12zM17 9l-6 6M11 9l6 6"/></svg></button>
+    </div>
+    <div class="err" id="idleErr"></div>
+    <div class="ok-note" id="idleNote"></div>
+  </section>
+
+  <!-- call, expanded -->
+  <section class="screen" id="s-call">
+    <div class="who-box">
+      <div class="avatar" id="cAvatar"></div>
+      <div class="who" id="cWho"></div>
+      <div class="num" id="cNum"></div>
+      <div class="what" id="cWhat"></div>
+    </div>
+    <!-- two calls: who is on hold, who is talking, or both in conference -->
+    <div class="legs" id="legs"></div>
+    <div class="multi-acts" id="multiActs">
+      <button class="pill plain" id="swapBtn">Swap</button>
+      <button class="pill blue" id="mergeBtn">Merge</button>
+      <button class="pill blue" id="joinBtn">Transfer</button>
+    </div>
+    <div class="grow"></div>
+    <div class="keys dtmf" id="dtmf"></div>
+    <div class="ctl" id="ctl">
+      <button id="muteBtn"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>Mute</button>
+      <button id="padBtn"><svg viewBox="0 0 24 24"><circle cx="6" cy="5" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="18" cy="5" r="1"/><circle cx="6" cy="11" r="1"/><circle cx="12" cy="11" r="1"/><circle cx="18" cy="11" r="1"/><circle cx="6" cy="17" r="1"/><circle cx="12" cy="17" r="1"/><circle cx="18" cy="17" r="1"/><circle cx="12" cy="22" r=".6"/></svg>Keypad</button>
+      <button id="holdBtn"><svg viewBox="0 0 24 24"><path d="M9 5v14M15 5v14"/></svg>Hold</button>
+      <button id="xferBtn"><svg viewBox="0 0 24 24"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2"/><path d="M15 3h6v6M21 3l-6 6"/></svg>Transfer</button>
+      <button id="parkBtn" hidden><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M10 16V8h3a2.5 2.5 0 0 1 0 5h-3"/></svg>Park</button>
+      <button id="addBtn"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="4"/><path d="M2 21c0-4 3.1-7 7-7s7 3 7 7M19 8v6M16 11h6"/></svg>Add</button>
+      <button id="flipBtn" hidden title="Move this call to one of your other phones"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="8" height="14" rx="1.5"/><rect x="13" y="6" width="8" height="14" rx="1.5"/><path d="M8 21h8M14 2l2 2-2 2"/></svg>Flip</button>
+    </div>
+    <!-- transfer picker; replaces the rest of this screen while open -->
+    <div class="xfer">
+      <div class="xhead" id="xHead">Transfer <b id="xWho"></b> to…</div>
+      <div class="search"><input id="xTo" placeholder="Name, extension or number" autocomplete="off" spellcheck="false"></div>
+      <div class="list" id="xList"></div>
+      <div class="xgo">
+        <button class="pill plain" id="xCancel">Cancel</button>
+        <button class="pill plain" id="xTalk" disabled title="Call them first, then hand the caller over">Talk first</button>
+        <button class="pill blue" id="xGo" disabled>Transfer</button>
+      </div>
+      <div class="err" id="xErr"></div>
+    </div>
+    <div class="endrow" id="inbound">
+      <button class="pill red" id="declineBtn">Decline</button>
+      <button class="pill green" id="answerBtn">Answer</button>
+    </div>
+    <div class="endrow" id="active">
+      <button class="pill red" id="hangBtn"><svg viewBox="0 0 24 24" style="transform:rotate(135deg)"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2"/></svg>End call</button>
+    </div>
+    <div class="err" id="callErr"></div>
+  </section>
+
+  <!-- call, compact -->
+  <div class="mini" id="s-mini">
+    <div class="tx"><b id="mWho"></b><span id="mNum"></span></div>
+    <button class="rb" id="mMute" title="Mute"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
+    <button class="rb" id="mHold" title="Hold"><svg viewBox="0 0 24 24"><path d="M9 5v14M15 5v14"/></svg></button>
+    <button class="rb green" id="mAnswer" title="Answer"><svg viewBox="0 0 24 24"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2"/></svg></button>
+    <button class="rb red" id="mHang" title="End call"><svg viewBox="0 0 24 24" style="transform:rotate(135deg)"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2"/></svg></button>
+  </div>
+</div>
+
+<audio id="remote" autoplay></audio>
+<audio id="remote2" autoplay></audio>
+
+<script>
+// Follow the app's light/dark choice: pages keep it in localStorage, and the
+// storage event carries a change made on another page.
+(() => {
+  const apply = () => {
+    let t = null;
+    try { t = localStorage.getItem('theme'); } catch {}
+    const dark = t ? t === 'dark' : matchMedia('(prefers-color-scheme:dark)').matches;
+    document.documentElement.classList.toggle('dark', dark);
+  };
+  apply();
+  addEventListener('storage', (e) => { if (e.key === 'theme' || e.key === null) apply(); });
+  matchMedia('(prefers-color-scheme:dark)').addEventListener?.('change', apply);
+})();
+</script>
+<script src="/sounds.js"></script>
+<script type="module">
+import { Web, UserAgent } from '/vendor/sipjs/index.js';
+
+const $ = (s) => document.querySelector(s);
+const host = window.phoneHost ?? { show() {}, ring() {}, idle() {}, openMain(p) { location.href = p; }, onSound() {},
+                                   layout() {}, drag() {}, onOpen() {} };
+const chan = new BroadcastChannel('switchboard-phone');
+const digits = (s) => String(s || '').replace(/\D/g, '');
+const pretty = (n) => {
+  const d = digits(n).slice(-10);
+  return d.length === 10 ? '(' + d.slice(0,3) + ') ' + d.slice(3,6) + '-' + d.slice(6) : String(n || '');
+};
+const initials = (name) => {
+  const w = String(name || '').replace(/[^A-Za-z ]/g, ' ').trim().split(/\s+/).filter(Boolean);
+  return w.length ? (w[0][0] + (w[1] ? w[1][0] : '')).toUpperCase() : '☎';
+};
+const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+
+let cfg = null;          // { username, authUsername, password, realm, server, stun }
+let user = null;         // makeUser(SessionManager): SimpleUser-style calls on the main call
+let pSession = null;     // the main call's SIP session
+// The second party while two calls are up: consulting (main call on hold) or
+// merged into a conference. { session, number, name, answered, startedAt, what, rejectCode }
+let second = null;
+let mode = null;         // null | 'consult' | 'conference'
+let focus = 'p';         // consult: who you're talking to, 'p' (main) or 's' (second)
+let state = 'starting';  // unconfigured | connecting | registered | failed | offline
+let detail = '';
+let call = null;         // { dir: 'in'|'out', number, name, answered, startedAt }
+let tick = null;
+let ringVolume = 60;     // 0-100, from Settings
+
+// ---- layout ----------------------------------------------------------------------
+// open: the dialer is showing (when not in a call). expanded: a call shows full
+// controls instead of the compact card. The app sizes the overlay to match.
+let open = false, expanded = false, openBeforeCall = false;
+
+function screen(name) {
+  for (const s of document.querySelectorAll('.screen')) s.classList.toggle('on', s.id === 's-' + name);
+  $('#s-mini').classList.toggle('on', name === 'mini');
+}
+
+function layout() {
+  const mode = call ? (expanded ? 'panel' : 'mini') : (open ? 'panel' : 'hidden');
+  if (call) screen(expanded ? 'call' : 'mini');
+  else screen({ unconfigured: 'setup', disabled: 'off' }[state] || 'idle');
+  $('#expBtn').hidden = !(call && !expanded);
+  $('#minBtn').hidden = !(call && expanded);
+  $('#xBtn').hidden = !!call;
+  paintBar();
+  const wantPark = mode === 'panel' && !call;
+  if (wantPark !== !!parkTimer) watchParked(wantPark);
+  host.layout(mode);
+  if (mode === 'panel' && !call) setTimeout(() => $('#dial')?.focus(), 30);
+}
+
+function openDialer(number) {
+  if (call) { expanded = true; layout(); host.show(); return; }
+  open = true;
+  if (number != null && number !== '') { $('#dial').value = String(number); }
+  $('#idleErr').textContent = '';
+  refreshDial();
+  loadRecent();
+  layout();
+}
+
+// ---- title bar -------------------------------------------------------------------
+const clock = (ms) => { const s = Math.floor(ms / 1000); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
+function paintBar() {
+  const bar = $('#bar');
+  let cls = 'idle', text;
+  if (!call) {
+    text = {
+      unconfigured: 'Phone · not set up', disabled: 'Phone · off', connecting: 'Phone · connecting…',
+      registered: 'Phone', failed: detail || 'Phone · could not connect',
+      offline: 'Phone · offline, reconnecting…', starting: 'Phone · starting…',
+    }[state] || 'Phone';
+  } else if (second && mode === 'conference') { cls = 'active'; text = 'Conference · ' + clock(Date.now() - (call.startedAt || Date.now())); }
+  else if (second) { cls = 'held'; text = second.answered ? '2 calls · ' + clock(Date.now() - second.startedAt) : '2 calls · ' + (second.what || 'Calling…'); }
+  else if (call.dir === 'in' && !call.answered) { cls = 'in'; text = 'Incoming call'; }
+  else if (!call.answered) { cls = 'out'; text = call.what || 'Calling…'; }
+  else if (user?.isHeld?.()) { cls = 'held'; text = 'On hold · ' + clock(Date.now() - call.startedAt); }
+  else { cls = 'active'; text = 'Active · ' + clock(Date.now() - call.startedAt); }
+  bar.className = 'bar ' + cls;
+  $('#title').textContent = text;
+}
+
+// Drag by the title bar. The overlay moves under the pointer, so deltas come
+// from screen coordinates and go to the app in batches, once per frame.
+{
+  const bar = $('#bar');
+  let last = null, acc = [0, 0], queued = false;
+  bar.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0 || e.target.closest('button')) return;
+    last = [e.screenX, e.screenY];
+    bar.setPointerCapture(e.pointerId);
+    bar.classList.add('dragging');
+  });
+  bar.addEventListener('pointermove', (e) => {
+    if (!last) return;
+    acc[0] += e.screenX - last[0]; acc[1] += e.screenY - last[1];
+    last = [e.screenX, e.screenY];
+    if (queued) return;
+    queued = true;
+    requestAnimationFrame(() => { queued = false; host.drag(acc[0], acc[1]); acc = [0, 0]; });
+  });
+  const end = () => { last = null; bar.classList.remove('dragging'); };
+  bar.addEventListener('pointerup', end);
+  bar.addEventListener('pointercancel', end);
+}
+
+// ---- status ------------------------------------------------------------------
+function setStatus(s, d = '') {
+  state = s; detail = d;
+  $('#dot').className = 'dot ' + ({ registered: 'ok', connecting: 'warn', failed: 'bad', offline: 'bad' }[s] || '');
+  $('#callBtn').disabled = s !== 'registered' || !target($('#dial').value);
+  if (!call) layout(); else paintBar();
+  broadcast();
+}
+function broadcast() {
+  chan.postMessage({ type: 'status', state, detail, inCall: !!call, username: cfg?.username || '' });
+  // Also report to the local server, so the phone's state can be checked
+  // from outside the app (status only — no credentials).
+  fetch('/api/phone/status', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ state, detail, inCall: !!call }) }).catch(() => {});
+}
+
+// ---- contacts (for caller names) ------------------------------------------------
+let book = null;
+async function loadBook() {
+  if (book) return book;
+  try { book = (await (await fetch('/api/directory')).json()).contacts || []; } catch { book = []; }
+  return book;
+}
+// Everyone else on the account, with extensions, and the account's park codes.
+// Only with a signed-in account; otherwise (409) there is no company list.
+let org = null, orgAt = 0;
+let myExt = '';          // your own extension, for Flip
+async function loadOrg() {
+  if (org && Date.now() - orgAt < 10 * 60e3) return org;
+  try {
+    const r = await fetch('/api/company');
+    const j = r.ok ? await r.json() : null;
+    org = j && Array.isArray(j.members) ? j : (org ?? { members: [], park: null, retrieve: null });
+    orgAt = Date.now();
+  } catch { org = org ?? { members: [], park: null, retrieve: null }; }
+  myExt = org.members.find(m => m.me)?.ext || '';
+  return org;
+}
+async function nameFor(number) {
+  const d = digits(number);
+  if (d.length >= 2 && d.length <= 6) {             // an extension
+    const m = (await loadOrg()).members.find(m => m.ext === d);
+    return m ? m.name : '';
+  }
+  const last = d.slice(-10);
+  if (last.length !== 10) return '';
+  const c = (await loadBook()).find(c => digits(c.number).endsWith(last));
+  if (c && (c.name || c.suggestedName)) return c.name || c.suggestedName;
+  const m = (await loadOrg()).members.find(m => m.number && digits(m.number).endsWith(last));
+  return m ? m.name : '';
+}
+// People matching what was typed: company first (name, extension, direct
+// number), then your own contacts. Each carries the number to dial.
+async function matches(q, limit = 8) {
+  q = q.trim().toLowerCase();
+  const d = digits(q), named = /[a-z]/.test(q);
+  if (!q) return [];
+  const [o, b] = await Promise.all([loadOrg(), loadBook()]);
+  const out = [];
+  for (const m of o.members) {
+    if (m.me) continue;
+    const hit = (named && m.name.toLowerCase().includes(q)) ||
+      (d && ((m.ext && m.ext.startsWith(d)) || (d.length >= 3 && digits(m.number).includes(d))));
+    if (hit) out.push({ company: true, title: m.name, sub: [m.ext ? 'Ext. ' + m.ext : '', m.number ? pretty(m.number) : ''].filter(Boolean).join(' · '),
+                        number: m.ext || m.number });
+  }
+  for (const c of b) {
+    const name = (c.name || c.suggestedName || '').toLowerCase();
+    if ((d.length >= 3 && digits(c.number).includes(d)) || (named && name.includes(q)))
+      out.push({ title: c.name || c.suggestedName || pretty(c.number), sub: pretty(c.number), number: c.number });
+  }
+  return out.slice(0, limit);
+}
+
+// ---- park ----------------------------------------------------------------------
+// Occupied park slots, shown at the top of the dialer. Picking one up dials the
+// account's retrieve code plus the slot.
+let slots = [], parkCodes = { park: null, retrieve: null }, parkTimer = null;
+async function loadParked() {
+  try {
+    const r = await fetch('/api/parked');
+    if (!r.ok) { slots = []; return slots; }
+    const j = await r.json();
+    slots = Array.isArray(j.slots) ? j.slots : [];
+    parkCodes = { park: j.park || null, retrieve: j.retrieve || j.park || null };
+  } catch {}
+  $('#parkBtn').hidden = !parkCodes.park;
+  return slots;
+}
+function watchParked(on) {
+  clearInterval(parkTimer); parkTimer = null;
+  if (!on) return;
+  const tickPark = async () => { await loadParked(); if (open && !call && !$('#dial').value.trim()) renderList(); };
+  tickPark();
+  parkTimer = setInterval(tickPark, 8000);
+}
+
+// ---- recent calls / contact matches in the dialer ---------------------------------
+// Call history needs a signed-in account; without one (409) the dialer shows
+// contact matches only.
+let recent = null, recentAt = 0, recentOff = false;
+async function loadRecent() {
+  if (recent && Date.now() - recentAt < 60000) return renderList();
+  try {
+    const r = await fetch('/api/calls?days=30');
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || j.error) { recent = null; recentOff = true; }
+    else {
+      recent = (j.calls || []).filter(c => c.number).slice(0, 12);
+      recentAt = Date.now();
+      recentOff = false;
+    }
+  } catch { if (!recent) recentOff = true; }
+  renderList();
+}
+const ICON_OUT = '<svg viewBox="0 0 24 24"><path d="M7 17 17 7M9 7h8v8"/></svg>';
+const ICON_IN = '<svg viewBox="0 0 24 24"><path d="M17 7 7 17M15 17H7V9"/></svg>';
+const ICON_USER = '<svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-7 8-7s8 3 8 7"/></svg>';
+const ICON_PARK = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M10 16V8h3a2.5 2.5 0 0 1 0 5h-3"/></svg>';
+const ago = (t) => {
+  const d = new Date(t), now = new Date();
+  return d.toDateString() === now.toDateString()
+    ? d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+    : d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+};
+function rowFor({ icon, miss = false, title, sub, when, number }) {
+  const b = el('button', 'row');
+  b.type = 'button';
+  const ic = el('span', 'ic' + (miss ? ' miss' : ''));
+  ic.innerHTML = icon;                    // static markup only
+  const tx = el('span', 'tx');
+  tx.append(el('b', '', title), el('span', '', sub));
+  b.append(ic, tx);
+  if (when) b.appendChild(el('time', '', when));
+  b.onclick = () => { $('#dial').value = number; refreshDial(); $('#dial').focus(); };
+  b.ondblclick = () => dial(number);
+  return b;
+}
+async function renderList() {
+  const box = $('#list');
+  const q = $('#dial').value.trim().toLowerCase();
+  const d = digits(q);
+  box.textContent = '';
+  if (q) {
+    const hits = await matches(q);
+    if ($('#dial').value.trim().toLowerCase() !== q) return;   // typed on while loading
+    box.textContent = '';
+    box.appendChild(el('div', 'lh', 'Contacts'));
+    if (!hits.length) box.appendChild(el('div', 'empty', 'No matching contacts.'));
+    for (const h of hits) box.appendChild(rowFor({ icon: ICON_USER, title: h.title, sub: h.sub, number: h.number }));
+    return;
+  }
+  if (slots.length) {
+    box.appendChild(el('div', 'lh', 'Parked calls'));
+    for (const s of slots) {
+      const code = (parkCodes.retrieve || '') + s.slot;
+      const r = rowFor({ icon: ICON_PARK, title: s.name || (s.number ? pretty(s.number) : 'Parked caller'),
+        sub: 'Slot ' + s.slot + (s.name && s.number ? ' · ' + pretty(s.number) : '') + ' — click to pick up', number: code });
+      r.querySelector('.ic').classList.add('park');
+      r.onclick = r.ondblclick = () => { if (parkCodes.retrieve) dial(code); };
+      box.appendChild(r);
+    }
+  }
+  if (recentOff) return;
+  box.appendChild(el('div', 'lh', 'Recent calls'));
+  if (!recent) { box.appendChild(el('div', 'empty', 'Loading…')); return; }
+  if (!recent.length) { box.appendChild(el('div', 'empty', 'No calls in the last 30 days.')); return; }
+  for (const c of recent) box.appendChild(rowFor({
+    icon: c.direction === 'in' ? ICON_IN : ICON_OUT, miss: c.direction === 'in' && !c.answered,
+    title: c.name || pretty(c.number), sub: c.name ? pretty(c.number) : (c.direction === 'in' ? (c.answered ? 'Incoming' : 'Missed') : 'Outgoing'),
+    when: ago(c.at), number: c.number,
+  }));
+}
+
+// ---- ringtone (Settings > Sounds) ------------------------------------------------
+let stopRing = null;
+async function ringStart() {
+  ringStop();
+  let snd = { name: 'classic', file: '', volume: ringVolume };
+  try {
+    const st = (await (await fetch('/api/settings')).json()).settings;
+    snd = { name: st.sounds.ringtone, file: st.sounds.ringtoneFile, volume: st.phone.ringVolume };
+  } catch {}
+  if (!call || call.answered) return;          // answered or declined while loading
+  stopRing = window.switchboardSounds ? window.switchboardSounds.ring(snd) : null;
+}
+function ringStop() { if (stopRing) { stopRing(); stopRing = null; } }
+
+// ---- ringback on outgoing calls ------------------------------------------------------
+// Early media is enabled, so when the network sends its own ringing or an
+// announcement (183 with audio) that plays through the call's audio. When it
+// only says "ringing" (180, no audio) we play a US ringback tone locally —
+// otherwise the caller hears dead air until someone picks up.
+let stopRingback = null;
+function ringbackStart() {
+  if (stopRingback || !window.switchboardSounds) return;
+  stopRingback = window.switchboardSounds.ring({ name: 'classic', volume: Math.min(ringVolume, 45) });
+}
+function ringbackStop() { if (stopRingback) { stopRingback(); stopRingback = null; } }
+
+const REJECT_REASONS = {
+  486: 'Busy', 600: 'Busy', 404: 'Number not found', 484: 'Incomplete number', 480: 'Unavailable',
+  408: 'No answer', 603: 'Declined', 403: 'Call not allowed', 503: 'Service unavailable', 487: '',
+};
+
+// ---- dialing -------------------------------------------------------------------
+// Turn typed input into a SIP target on our realm, or null.
+function target(raw) {
+  const s = String(raw || '').replace(/[^\d*#+]/g, '');
+  const d = digits(s);
+  let who = null;
+  if (/[*#]/.test(s)) who = s.length >= 2 ? s : null;                 // feature codes
+  else if (d.length === 10) who = '+1' + d;
+  else if (d.length === 11 && d[0] === '1') who = '+' + d;
+  else if (d.length > 11 && d.length <= 15) who = '+' + d;
+  else if (d.length >= 2 && d.length <= 6) who = d;                    // extensions
+  return who && cfg ? { who, uri: 'sip:' + encodeURIComponent(who).replace(/%2B/g, '+') + '@' + cfg.realm } : null;
+}
+
+async function dial(raw) {
+  const t = target(raw);
+  if (!t) { $('#idleErr').textContent = 'That doesn’t look like a number.'; return; }
+  if (state !== 'registered') { $('#idleErr').textContent = 'Phone isn’t connected.'; return; }
+  if (call) { $('#idleErr').textContent = 'Already on a call.'; return; }
+  host.show();
+  openBeforeCall = open;
+  call = { dir: 'out', number: t.who, name: await nameFor(t.who), answered: false, startedAt: 0, what: 'Calling…' };
+  expanded = false;
+  showCall('Calling…');
+  try {
+    await user.call(t.uri, { earlyMedia: true }, {
+      requestDelegate: {
+        onProgress: (res) => {
+          if (!call || call.answered) return;
+          const code = res?.message?.statusCode;
+          if (code !== 180 && code !== 183) return;
+          setWhat('Ringing…');
+          if (code === 183 && res?.message?.body) ringbackStop();   // the network's own audio is playing
+          else ringbackStart();
+        },
+        onReject: (res) => {
+          ringbackStop();
+          if (call) call.rejectCode = res?.message?.statusCode;
+        },
+      },
+    });
+  }
+  catch (e) { endCall('Call failed: ' + (e?.message || e)); }
+}
+
+// ---- call screens ----------------------------------------------------------------
+function setWhat(what) {
+  if (!call) return;
+  call.what = what;
+  $('#cWhat').textContent = what;
+  $('#mNum').textContent = [call.name ? pretty(call.number) : '', what].filter(Boolean).join(' · ');
+  paintBar();
+}
+
+function showCall(what) {
+  const who = call.name || pretty(call.number) || 'Unknown';
+  $('#cAvatar').textContent = initials(call.name);
+  $('#cWho').textContent = who;
+  $('#cNum').textContent = call.name ? pretty(call.number) : '';
+  $('#mWho').textContent = who;
+  $('#callErr').textContent = '';
+  const ringingIn = call.dir === 'in' && !call.answered;
+  $('#inbound').style.display = ringingIn ? '' : 'none';
+  $('#active').style.display = ringingIn ? 'none' : '';
+  $('#ctl').style.display = ringingIn ? 'none' : '';
+  $('#muteBtn').disabled = $('#holdBtn').disabled = $('#padBtn').disabled = !call.answered;
+  $('#xferBtn').disabled = $('#parkBtn').disabled = !call.answered;
+  $('#parkBtn').hidden = !parkCodes.park;
+  closeXfer();
+  for (const b of ['#muteBtn', '#holdBtn', '#padBtn', '#mMute', '#mHold']) $(b).classList.remove('on');
+  $('#dtmf').classList.remove('on');
+  $('#mAnswer').hidden = !ringingIn;
+  $('#mMute').hidden = $('#mHold').hidden = !call.answered;
+  $('#mHang').title = ringingIn ? 'Decline' : second ? 'End all' : 'End call';
+  setWhat(what);
+  renderMulti();
+  layout();
+  broadcast();
+}
+
+function startTimer() {
+  call.startedAt = Date.now();
+  clearInterval(tick);
+  const upd = () => {
+    if (!call) return;
+    const t = clock(Date.now() - call.startedAt);
+    $('#cWhat').textContent = (user?.isHeld?.() ? 'On hold · ' : 'Active · ') + t;
+    if (second) tickLegs();
+    else $('#mNum').textContent = [call.name ? pretty(call.number) : '', t].filter(Boolean).join(' · ');
+    paintBar();
+  };
+  upd();
+  tick = setInterval(upd, 500);
+}
+
+function endCall(reason) {
+  ringStop();
+  ringbackStop();
+  clearInterval(tick); tick = null;
+  host.idle();
+  call = null;
+  expanded = false;
+  stopMix();
+  // A leftover session would make the next incoming call look like a second
+  // ring and get declined; its own hangup event, if still to come, is ignored.
+  pSession = null;
+  second = null; mode = null; focus = 'p';
+  $('#s-call').classList.remove('multi');
+  $('#legs').textContent = '';
+  $('#remote').srcObject = null;
+  $('#remote2').srcObject = null;
+  $('#idleErr').textContent = reason || '';
+  if (reason) setTimeout(() => { if ($('#idleErr').textContent === reason) $('#idleErr').textContent = ''; }, 6000);
+  // A failed call leaves the dialer up with the reason; otherwise go back to
+  // however things were before the call.
+  open = !!reason || openBeforeCall;
+  openBeforeCall = false;
+  recentAt = 0;                     // this call belongs in the recent list
+  closeXfer();
+  $('#answerBtn').disabled = $('#mAnswer').disabled = false;   // never carried into the next ring
+  if (open) loadRecent();
+  layout();
+  showParkNote();                   // a call just parked: say where it went
+  broadcast();
+}
+
+// ---- SIP -------------------------------------------------------------------------
+async function teardown() {
+  clearInterval(watchdog); watchdog = null;
+  if (!user) return;
+  const u = user; user = null;
+  try { await u.unregister(); } catch {}
+  try { await u.disconnect(); } catch {}
+}
+
+async function start() {
+  await teardown();
+  // Settings: phone on/off, ring volume, SIP trace.
+  let trace = false;
+  try {
+    const st = await (await fetch('/api/settings')).json();
+    if (st?.settings?.phone) {
+      ringVolume = st.settings.phone.ringVolume;
+      trace = st.settings.phone.sipTrace === true;
+      if (st.settings.phone.enabled === false) { cfg = null; setStatus('disabled'); return; }
+    }
+  } catch {}
+  let c;
+  try { c = await (await fetch('/api/sip/config')).json(); }
+  catch { setStatus('failed', 'Could not read phone settings'); return; }
+  if (c.error) { setStatus('failed', c.error); return; }
+  if (!c.configured) { cfg = null; setStatus('unconfigured'); return; }
+  cfg = c;
+  setStatus('connecting');
+
+  // SessionManager rather than SimpleUser: it holds more than one call at a
+  // time (consult, conference), each with its own audio element. makeUser()
+  // wraps it in the SimpleUser-style calls the rest of this page uses, all
+  // aimed at the main call.
+  const sm = new Web.SessionManager(c.server, {
+    aor: 'sip:' + c.username + '@' + c.realm,
+    maxSimultaneousSessions: 2,
+    media: {
+      constraints: { audio: true, video: false },
+      remote: (s) => ({ audio: s === pSession || !pSession ? $('#remote') : $('#remote2') }),
+    },
+    reconnectionAttempts: 1000,
+    reconnectionDelay: 5,
+    // Tones inside the audio stream (RFC 4733) — what phone menus listen for.
+    sendDTMFUsingSessionDescriptionHandler: true,
+    userAgentOptions: {
+      authorizationUsername: c.authUsername || c.username,
+      authorizationPassword: c.password,
+      logBuiltinEnabled: false,
+      // Settings > Phone > SIP trace: the app process picks up '[sip] ' lines
+      // from this page's console and writes them to logs\sip-trace.log.
+      ...(trace ? { logLevel: 'debug', logConnector: (level, category, label, content) =>
+        console.log('[sip] ' + level + ' ' + category + (label ? ' ' + label : '') + ': ' + content) } : {}),
+      sessionDescriptionHandlerFactoryOptions: {
+        peerConnectionConfiguration: { iceServers: c.stun ? [{ urls: c.stun }] : [] },
+        // How long to collect network addresses before sending the offer or
+        // answer. SIP.js waits for gathering to finish, up to 5 s by default;
+        // one interface whose address check fails (onicecandidateerror) keeps
+        // it from ever finishing, so every call and every answer sat out the
+        // full 5 s (measured in the SIP trace). Local and STUN addresses come
+        // in well under this; the server learns anything missing from the
+        // connectivity checks.
+        iceGatheringTimeout: 1500,
+      },
+    },
+    delegate: {
+      onServerConnect: () => { if (state !== 'registered') setStatus('connecting'); },
+      onServerDisconnect: (err) => { setStatus('offline', err?.message); },
+      onRegistered: () => { authRejected = false; setStatus('registered'); },
+      onUnregistered: () => {
+        if (state === 'registered') setStatus('connecting', 'Registration lapsed');
+        // Don't wait for the watchdog's next tick.
+        setTimeout(() => { if (user === u && state !== 'registered' && !authRejected) registerNow(u); }, 2000);
+      },
+      // The first live session is the main call; a second is the consult or
+      // added party. Anything else (a ring while busy) is declined below.
+      onCallCreated: (s) => {
+        if (!pSession) pSession = s;
+        else if (second && !second.session) second.session = s;
+      },
+      onCallReceived: async (s) => {
+        const id = s.remoteIdentity;
+        const number = id?.uri?.user || '';
+        // A call coming back to us from our own Flip: the other phones take it.
+        if (flipEcho(number)) { try { await sm.decline(s); } catch {} return; }
+        if (s !== pSession) { try { await sm.decline(s); } catch {} return; }   // one incoming call at a time
+        // Tell the network we're ringing (180). SIP.js doesn't send it by itself,
+        // so without this the network only ever sees "trying" until someone answers.
+        try { await s.progress(); } catch {}
+        openBeforeCall = open;
+        call = { dir: 'in', number, name: (await nameFor(number)) || id?.displayName || '', answered: false };
+        expanded = false;
+        showCall('Incoming call');
+        ringStart();
+        host.ring(call.name ? call.name + ' ' + pretty(number) : pretty(number));
+      },
+      // Runs inside SIP.js's "answered" step: an exception here would make
+      // answer() reject on a connected call (see connectedAnyway), so never throw.
+      onCallAnswered: (s) => {
+        if (second && s === second.session) { try { secondAnswered(); } catch (e) { console.error('[sip] error phone: second answered: ' + (e?.stack || e)); } return; }
+        if (!call || s !== pSession) return;
+        try {
+          ringStop(); ringbackStop(); host.idle();
+          call.answered = true;
+          if (call.hangUpWhenConnected) { setTimeout(hangup, 0); return; }   // declined while connecting
+          showCall('Connected');
+          startTimer();
+        } catch (e) {
+          console.error('[sip] error phone: onCallAnswered: ' + (e?.stack || e?.message || e));
+          $('#callErr').textContent = 'Connected, but: ' + (e?.message || e);
+        }
+      },
+      onCallHangup: (s) => {
+        if (second && s === second.session) return secondEnded();
+        if (s !== pSession) return;                  // a declined extra ring
+        pSession = null;
+        if (!call) return;                           // already ended here (or a declined flip echo)
+        if (second?.session) return promoteSecond(); // the other party is still with us
+        endCall(call && !call.answered
+          ? (call.dir === 'out' ? (REJECT_REASONS[call.rejectCode] ?? 'No answer') : 'Missed call')
+          : '');
+      },
+      onCallHold: (s, held) => {
+        if (s === pSession) for (const b of ['#holdBtn', '#mHold']) $(b).classList.toggle('on', held);
+        if (second) renderLegs();
+        paintBar();
+      },
+    },
+  });
+  const u = makeUser(sm);
+  user = u;
+
+  try { await u.connect(); }
+  catch (e) { setStatus('failed', 'Could not reach the phone server' + (e?.message ? ': ' + e.message : '')); }
+  await registerNow(u);
+  startWatchdog();
+}
+
+// Register, remembering why it failed. 401/403 means the saved credentials are
+// wrong; the watchdog leaves that alone so a bad password isn't retried into a
+// lockout.
+let authRejected = false;
+async function registerNow(u) {
+  try {
+    await u.register({
+      requestDelegate: {
+        onReject: (res) => {
+          const code = res?.message?.statusCode;
+          authRejected = code === 401 || code === 403;
+          setStatus('failed', authRejected
+            ? 'SIP username or password was rejected'
+            : 'Registration refused (' + (code || '?') + ')');
+        },
+      },
+    });
+  } catch { /* not connected yet; the watchdog tries again */ }
+}
+
+// SIP.js reconnects dropped connections and re-registers after them, but
+// SessionManager never retries a registration refresh that was refused or timed out
+// (registrationRetry is off and not exposed). Refreshes happen every 60s, so
+// one bad refresh would leave the phone silently unreachable. Check every 20s;
+// after ~2 minutes of failures, rebuild the connection from scratch.
+let watchdog = null, badChecks = 0;
+function startWatchdog() {
+  clearInterval(watchdog);
+  badChecks = 0;
+  watchdog = setInterval(async () => {
+    const u = user;
+    if (!u || !cfg || call) return;
+    if (state === 'registered') { badChecks = 0; return; }
+    if (authRejected) return;
+    if (++badChecks >= 6) { badChecks = 0; start(); return; }
+    try { if (!u.isConnected()) await u.connect(); } catch { return; }
+    await registerNow(u);
+  }, 20000);
+}
+
+// ---- UI wiring ----------------------------------------------------------------------
+const LET = { 2: 'ABC', 3: 'DEF', 4: 'GHI', 5: 'JKL', 6: 'MNO', 7: 'PQRS', 8: 'TUV', 9: 'WXYZ', 0: '+' };
+function keypad(box, onKey) {
+  for (const k of ['1','2','3','4','5','6','7','8','9','*','0','#']) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.appendChild(document.createTextNode(k));
+    b.appendChild(el('small', '', LET[k] || ''));
+    b.onclick = () => onKey(k);
+    box.appendChild(b);
+  }
+}
+async function refreshDial() {
+  const v = $('#dial').value;
+  $('#callBtn').disabled = state !== 'registered' || !target(v);
+  $('#idleErr').textContent = '';
+  const d = digits(v);
+  $('#match').textContent = d.length >= 10 && !/[a-z]/i.test(v) ? (await nameFor(v)) || pretty(v) : '';
+  renderList();
+}
+keypad($('#keys'), (k) => { $('#dial').value += k; refreshDial(); $('#dial').focus(); });
+keypad($('#dtmf'), async (k) => {
+  if (!user || !call?.answered) return;
+  try { await user.sendDTMF(k); } catch (e) { $('#callErr').textContent = 'Tone failed'; }
+});
+
+// SIP.js rejects answer() if anything in its synchronous "answered" step throws,
+// and by then it has already sent 200 OK: the call is up. So a rejection only
+// means "no call" if the session never got established; otherwise keep the call
+// on screen, make sure the caller can be heard, and say what went wrong. The
+// error also goes to the SIP trace ('[sip] ' lines) when that's on.
+function connectedAnyway(e) {
+  const s = user?.session;
+  if (!call) return false;
+  // Still connecting (an earlier answer is in progress): not a failure, and
+  // onCallAnswered takes it from here.
+  if (s?.state === 'Establishing') return true;
+  if (s?.state !== 'Established') return false;
+  const remote = $('#remote'), stream = s.sessionDescriptionHandler?.remoteMediaStream;
+  try { if (stream && !remote.srcObject) { remote.srcObject = stream; remote.play().catch(() => {}); } } catch {}
+  if (!call.answered) { ringStop(); ringbackStop(); host.idle(); call.answered = true; showCall('Connected'); startTimer(); }
+  $('#callErr').textContent = 'Connected, but: ' + (e?.message || e);
+  return true;
+}
+// One answer per call. Answering takes a moment (building the connection), so
+// say so at once and take the Answer buttons away: a second press used to
+// reach SIP.js as a second accept ("Invalid session state Establishing").
+async function answer() {
+  if (!call || call.answered || call.answering) return;
+  call.answering = true;
+  ringStop();
+  $('#answerBtn').disabled = true;
+  $('#mAnswer').disabled = true;
+  setWhat('Connecting…');
+  try { await user.answer(); }
+  catch (e) {
+    console.error('[sip] error phone: answer: ' + (e?.stack || e?.message || e));
+    if (!connectedAnyway(e)) endCall('Could not answer' + (e?.message ? ': ' + e.message : ''));
+  } finally {
+    if (call) call.answering = false;
+    $('#answerBtn').disabled = false;
+    $('#mAnswer').disabled = false;
+  }
+}
+async function decline() {
+  // Already answering: too late to decline (SIP.js would refuse and the screen
+  // would clear on a live call), so hang up the moment it connects.
+  if (call?.answering) { call.hangUpWhenConnected = true; setWhat('Ending…'); return; }
+  ringStop(); try { await user.decline(); } catch {} endCall('');
+}
+async function hangup() { try { await user.hangup(); } catch {} endCall(''); }
+function toggleMute() {
+  if (!user) return;
+  if (mix) {                                    // conference: silence the mic in the mix
+    mix.muted = !mix.muted;
+    mix.gain.gain.value = mix.muted ? 0 : 1;
+  } else {
+    const s = talking();
+    if (!s) return;
+    user.sm.isMuted(s) ? user.sm.unmute(s) : user.sm.mute(s);
+  }
+  syncButtons();
+}
+async function toggleHold() {
+  if (!user) return;
+  try { user.isHeld() ? await user.unhold() : await user.hold(); } catch { $('#callErr').textContent = 'Hold failed'; }
+}
+
+// ---- blind transfer / park ------------------------------------------------------------
+// Both are a SIP REFER on the live call: the network takes the other party
+// and sends them to the new target (a number, an extension, or the park code),
+// then ends our leg. If it doesn't end it within a few seconds, we do.
+function refer(raw) {
+  const t = target(raw);
+  const s = user?.session;
+  if (!t || !s) return Promise.reject(new Error(t ? 'No call to transfer.' : 'That doesn’t look like a number.'));
+  const uri = UserAgent.makeURI(t.uri);
+  if (!uri) return Promise.reject(new Error('That doesn’t look like a number.'));
+  return new Promise((resolve, reject) => {
+    s.refer(uri, {
+      requestDelegate: {
+        onAccept: () => resolve(),
+        onReject: (res) => reject(new Error((REJECT_REASONS[res?.message?.statusCode] || 'Refused') +
+          ' (' + (res?.message?.statusCode || '?') + ')')),
+      },
+    }).catch(reject);
+  });
+}
+function finishAfterRefer() {
+  const was = call;
+  setTimeout(() => { if (call && call === was) hangup(); }, 4000);
+}
+
+let xPick = null;                       // { title, number } chosen in the picker
+// The picker serves Transfer (now, or Talk first) and Add (call someone to
+// merge in). The header is rebuilt each time, since Add has no name in it.
+let xMode = 'transfer';
+function setXEnabled(on) { $('#xGo').disabled = $('#xTalk').disabled = !on; }
+function openXfer(kind = 'transfer') {
+  if (!call?.answered || second) return;
+  xMode = kind;
+  xPick = null;
+  const head = $('#xHead');
+  head.textContent = '';
+  if (kind === 'add') head.appendChild(document.createTextNode('Add someone to this call'));
+  else head.append('Transfer ', el('b', '', call.name || pretty(call.number) || 'this call'), ' to…');
+  $('#xTalk').hidden = kind !== 'transfer';
+  $('#xGo').textContent = kind === 'add' ? 'Call' : 'Transfer';
+  $('#xTo').value = '';
+  $('#xErr').textContent = '';
+  setXEnabled(false);
+  $('#s-call').classList.add('xferring');
+  renderXfer();
+  setTimeout(() => $('#xTo').focus(), 30);
+}
+function closeXfer() { $('#s-call').classList.remove('xferring'); }
+async function renderXfer() {
+  const q = $('#xTo').value.trim();
+  const box = $('#xList');
+  const typed = target(q) && !/[a-z]/i.test(q);
+  let hits;
+  if (q) hits = await matches(q, 12);
+  else hits = (await loadOrg()).members.filter(m => !m.me && m.ext).slice(0, 40)
+    .map(m => ({ title: m.name, sub: 'Ext. ' + m.ext, number: m.ext }));
+  if ($('#xTo').value.trim() !== q) return;          // typed on while loading
+  box.textContent = '';
+  box.appendChild(el('div', 'lh', q ? 'Matches' : 'Company'));
+  if (!hits.length) box.appendChild(el('div', 'empty', typed
+    ? (xMode === 'add' ? 'Press Call to ring ' : 'Press Transfer to send the call to ') + (pretty(q) || q) + '.'
+    : 'No matches.'));
+  for (const h of hits) {
+    const r = rowFor({ icon: ICON_USER, title: h.title, sub: h.sub, number: h.number });
+    if (xPick && xPick.number === h.number) r.classList.add('pick');
+    r.onclick = () => { xPick = h; setXEnabled(true); renderXfer(); };
+    r.ondblclick = () => { xPick = h; doXfer(); };
+    box.appendChild(r);
+  }
+  if (!xPick) setXEnabled(!!typed);
+}
+// Talk first (warm transfer) and Add both start a second call with the caller on hold.
+function doConsult() {
+  const to = xPick?.number || $('#xTo').value.trim();
+  if (!target(to)) return;
+  consult(to, xPick?.title || '');
+}
+async function doXfer() {
+  if (xMode === 'add') return doConsult();
+  const to = xPick?.number || $('#xTo').value.trim();
+  const label = xPick?.title || pretty(to) || to;
+  $('#xErr').textContent = '';
+  $('#xGo').disabled = true;
+  $('#xGo').textContent = 'Transferring…';
+  try {
+    await refer(to);
+    closeXfer();
+    setWhat('Transferred to ' + label);
+    finishAfterRefer();
+  } catch (e) {
+    $('#xErr').textContent = 'Transfer failed: ' + (e?.message || e);
+    $('#xGo').disabled = false;
+  } finally { $('#xGo').textContent = xMode === 'add' ? 'Call' : 'Transfer'; }
+}
+
+let parkNote = '';                      // shown in the dialer after the call ends
+async function park() {
+  if (!call?.answered || !parkCodes.park) return;
+  $('#callErr').textContent = '';
+  $('#parkBtn').disabled = true;
+  const before = new Set((await loadParked()).map(s => s.slot));
+  const who = call.name || pretty(call.number) || 'Caller';
+  try {
+    await refer(parkCodes.park);
+    setWhat('Parking…');
+    finishAfterRefer();
+    // The network picks the slot; find it by what wasn't there before.
+    for (let i = 0; i < 6; i++) {
+      await new Promise(r => setTimeout(r, 1000));
+      const fresh = (await loadParked()).find(s => !before.has(s.slot));
+      if (fresh) {
+        parkNote = who + ' parked in slot ' + fresh.slot + '. Pick up from any phone with ' + (parkCodes.retrieve || '') + fresh.slot + '.';
+        if (!call) showParkNote();
+        return;
+      }
+    }
+    parkNote = who + ' parked.';
+    if (!call) showParkNote();
+  } catch (e) {
+    $('#callErr').textContent = 'Park failed: ' + (e?.message || e);
+  } finally { $('#parkBtn').disabled = false; }
+}
+function showParkNote() {
+  if (!parkNote) return;
+  const n = parkNote; parkNote = '';
+  $('#idleNote').textContent = n;
+  setTimeout(() => { if ($('#idleNote').textContent === n) $('#idleNote').textContent = ''; }, 15000);
+  open = true;
+  layout();
+  renderList();
+}
+
+// ---- SessionManager adapter ------------------------------------------------------------
+// The page grew up on SimpleUser; these keep its calls working, aimed at the
+// main call (pSession). DTMF goes to whoever you're talking to.
+function makeUser(sm) {
+  const need = () => pSession ?? Promise.reject(new Error('No call.'));
+  return {
+    sm,
+    get session() { return pSession ?? undefined; },
+    connect: () => sm.connect(), disconnect: () => sm.disconnect(), isConnected: () => sm.isConnected(),
+    register: (o) => sm.register(o), unregister: (o) => sm.unregister(o),
+    call: (dest, o, io) => sm.call(dest, o, io),
+    answer: () => pSession ? sm.answer(pSession) : need(),
+    decline: () => pSession ? sm.decline(pSession) : Promise.resolve(),
+    hangup: () => pSession ? sm.hangup(pSession) : Promise.resolve(),
+    hold: () => pSession ? sm.hold(pSession) : need(),
+    unhold: () => pSession ? sm.unhold(pSession) : need(),
+    isHeld: () => !!pSession && sm.isHeld(pSession),
+    mute: () => pSession && sm.mute(pSession),
+    unmute: () => pSession && sm.unmute(pSession),
+    isMuted: () => !!pSession && sm.isMuted(pSession),
+    sendDTMF: (t) => { const s = talking(); return s ? sm.sendDTMF(s, t) : need(); },
+  };
+}
+// The session your microphone is going to right now.
+function talking() {
+  if (second?.session && second.answered && (mode === 'conference' || (mode === 'consult' && focus === 's'))) return second.session;
+  return pSession;
+}
+const errText = (e) => e?.message || String(e);
+
+// ---- two calls: consult, swap, merge, attended transfer -----------------------------
+// Consult: the caller goes on hold and we ring someone else. From there:
+// Swap between them, Merge into a three-way call, or Transfer (hand the caller
+// to the person we consulted and drop out; a REFER with Replaces).
+async function consult(to, label) {
+  const t = target(to);
+  if (!t || !call?.answered || second) return;
+  const sm = user.sm;
+  closeXfer();
+  $('#callErr').textContent = '';
+  try { if (!user.isHeld()) await user.hold(); }
+  catch (e) { $('#callErr').textContent = 'Could not put the caller on hold: ' + errText(e); return; }
+  second = { session: null, number: t.who, name: label || (await nameFor(t.who)), answered: false, startedAt: 0, what: 'Calling…' };
+  mode = 'consult'; focus = 's';
+  renderMulti();
+  try {
+    await sm.call(t.uri, { earlyMedia: true }, {
+      requestDelegate: {
+        onProgress: (res) => {
+          if (!second || second.answered) return;
+          const code = res?.message?.statusCode;
+          if (code !== 180 && code !== 183) return;
+          second.what = 'Ringing…';
+          tickLegs();
+          if (code === 183 && res?.message?.body) ringbackStop(); else ringbackStart();
+        },
+        onReject: (res) => { ringbackStop(); if (second) second.rejectCode = res?.message?.statusCode; },
+      },
+    });
+  } catch (e) {
+    ringbackStop();
+    const who = second?.name || pretty(t.who);
+    second = null; mode = null; focus = 'p';
+    showCall('Connected');
+    $('#callErr').textContent = 'Could not call ' + who + ': ' + errText(e) + '. The caller is on hold.';
+  }
+}
+
+function secondAnswered() {
+  ringbackStop();
+  second.answered = true;
+  second.startedAt = Date.now();
+  second.what = '';
+  renderMulti();
+}
+
+// The consulted / added party is gone (hung up, didn't answer, or dropped).
+function secondEnded() {
+  const s = second, was = mode;
+  stopMix();
+  ringbackStop();
+  second = null; mode = null; focus = 'p';
+  $('#remote2').srcObject = null;
+  if (!call) return;
+  showCall('Connected');
+  if (s.transferring) return;                        // the main call ends in a moment too
+  const who = s.name || pretty(s.number) || 'They';
+  if (s.cancelled) { if (was === 'consult') user.unhold().catch(() => {}); return; }
+  $('#callErr').textContent = !s.answered
+    ? who + ': ' + (REJECT_REASONS[s.rejectCode] || 'No answer') + (was === 'consult' ? '. Press Hold to go back to the caller.' : '')
+    : who + ' left the call.' + (was === 'consult' ? ' Press Hold to go back to the caller.' : '');
+}
+
+// The main caller hung up while a second party is still with us: they become
+// the main call.
+function promoteSecond() {
+  const s = second;
+  stopMix();
+  second = null; mode = null; focus = 'p';
+  if (s.transferring) { user.sm.hangup(s.session).catch(() => {}); return endCall(''); }
+  pSession = s.session;
+  call = { dir: 'out', number: s.number, name: s.name, answered: s.answered, startedAt: 0, what: s.what || 'Calling…', rejectCode: s.rejectCode };
+  if (user.isHeld()) user.unhold().catch(() => {});
+  showCall(call.answered ? 'Connected' : call.what);
+  if (call.answered) { startTimer(); call.startedAt = s.startedAt || Date.now(); }
+  $('#callErr').textContent = 'The other caller hung up.';
+}
+
+async function swap() {
+  if (mode !== 'consult' || !second?.answered) return;
+  const sm = user.sm;
+  try {
+    if (focus === 's') { await sm.hold(second.session); await sm.unhold(pSession); focus = 'p'; }
+    else { await sm.hold(pSession); await sm.unhold(second.session); focus = 's'; }
+  } catch (e) { $('#callErr').textContent = 'Swap failed: ' + errText(e); }
+  renderMulti();
+}
+
+async function merge() {
+  if (!second?.answered || mode === 'conference') return;
+  const sm = user.sm;
+  $('#callErr').textContent = '';
+  $('#mergeBtn').disabled = true;
+  try {
+    await sm.unhold(pSession);
+    await sm.unhold(second.session);
+    sm.unmute(pSession); sm.unmute(second.session);   // muting is the mix's job from here
+    await startMix();
+    mode = 'conference';
+  } catch (e) {
+    stopMix();
+    $('#callErr').textContent = 'Merge failed: ' + errText(e);
+  }
+  renderMulti();
+}
+
+// Attended transfer: ask the caller's side to replace our leg with the one to
+// the person we consulted. Both our legs then end.
+async function joinTransfer() {
+  if (mode !== 'consult' || !second?.answered) return;
+  const who = second.name || pretty(second.number);
+  second.transferring = true;
+  renderMulti();
+  try {
+    await new Promise((resolve, reject) => {
+      user.sm.transfer(pSession, second.session, {
+        requestDelegate: {
+          onAccept: () => resolve(),
+          onReject: (res) => reject(new Error((REJECT_REASONS[res?.message?.statusCode] || 'Refused') +
+            ' (' + (res?.message?.statusCode || '?') + ')')),
+        },
+      }).catch(reject);
+    });
+    setWhat('Transferred to ' + who);
+    const p = pSession, s = second?.session;
+    setTimeout(() => {
+      if (s && second?.session === s) user.sm.hangup(s).catch(() => {});
+      if (p && pSession === p) user.sm.hangup(p).catch(() => {});
+    }, 4000);
+  } catch (e) {
+    if (second) second.transferring = false;
+    $('#callErr').textContent = 'Transfer failed: ' + errText(e);
+    renderMulti();
+  }
+}
+
+function dropSecond() {
+  if (!second) return;
+  second.cancelled = true;
+  if (second.session) user.sm.hangup(second.session).catch(() => {});
+  else secondEnded();
+}
+function dropMain() { if (pSession) user.sm.hangup(pSession).catch(() => {}); }
+function endAll() {
+  if (second?.session) { second.cancelled = true; user.sm.hangup(second.session).catch(() => {}); }
+  hangup();
+}
+
+// ---- conference audio -----------------------------------------------------------------
+// The network has no ad-hoc conference here, so the app is the bridge: each
+// party is sent your microphone plus the other party's voice, mixed in Web
+// Audio. You hear both through their own audio elements, as before.
+let mix = null;
+const senderOf = (s) => s?.sessionDescriptionHandler?.peerConnection?.getSenders()
+  .find(x => x.track && x.track.kind === 'audio');
+async function startMix() {
+  stopMix();
+  const sm = user.sm;
+  const sa = senderOf(pSession), sb = senderOf(second?.session);
+  const ra = sm.getRemoteMediaStream(pSession), rb = sm.getRemoteMediaStream(second?.session);
+  if (!sa || !sb || !ra || !rb) throw new Error('call audio isn’t ready yet');
+  const ctx = new AudioContext();
+  const micA = sa.track, micB = sb.track;
+  micA.enabled = true;
+  const mic = ctx.createMediaStreamSource(new MediaStream([micA]));
+  const gain = ctx.createGain();
+  mic.connect(gain);
+  const fromA = ctx.createMediaStreamSource(ra), fromB = ctx.createMediaStreamSource(rb);
+  const toA = ctx.createMediaStreamDestination(), toB = ctx.createMediaStreamDestination();
+  gain.connect(toA); gain.connect(toB);
+  fromB.connect(toA); fromA.connect(toB);
+  mix = { ctx, gain, sa, sb, micA, micB, muted: false };
+  await sa.replaceTrack(toA.stream.getAudioTracks()[0]);
+  await sb.replaceTrack(toB.stream.getAudioTracks()[0]);
+  if (ctx.state === 'suspended') await ctx.resume().catch(() => {});
+}
+function stopMix() {
+  if (!mix) return;
+  const m = mix; mix = null;
+  // Whoever is still connected gets the plain microphone back.
+  try { if (m.sa.transport?.state !== 'closed') m.sa.replaceTrack(m.micA).catch(() => {}); } catch {}
+  try { if (m.sb.transport?.state !== 'closed') m.sb.replaceTrack(m.micB).catch(() => {}); } catch {}
+  m.ctx.close().catch(() => {});
+}
+
+// ---- flip ----------------------------------------------------------------------------
+// Moves the call to your other phones: a transfer to your own extension, which
+// rings all of them. This phone declines that ring when it comes back here.
+let flipGuard = null;
+function flipEcho(number) {
+  if (!flipGuard || Date.now() > flipGuard.until) return false;
+  const d = digits(number);
+  return !!d && flipGuard.keys.some(k => k && (k === d || (k.length >= 10 && d.length >= 10 && k.slice(-10) === d.slice(-10))));
+}
+async function flip() {
+  if (!call?.answered || second) return;
+  const me = (await loadOrg()).members.find(m => m.me);
+  if (!me?.ext) { $('#callErr').textContent = 'Your extension isn’t known, so there’s nowhere to flip to.'; return; }
+  flipGuard = { until: Date.now() + 45000, keys: [call.number, me.ext, me.number].map(digits) };
+  $('#flipBtn').disabled = true;
+  try {
+    await refer(me.ext);
+    setWhat('Ringing your other phones…');
+    finishAfterRefer();
+  } catch (e) {
+    flipGuard = null;
+    $('#callErr').textContent = 'Flip failed: ' + errText(e);
+  } finally { $('#flipBtn').disabled = false; }
+}
+
+// ---- two-call display -----------------------------------------------------------------
+function legStatus(which) {
+  const sm = user?.sm;
+  const conf = mode === 'conference';
+  if (which === 'p') {
+    const held = sm?.isHeld(pSession);
+    const t = call?.startedAt ? ' · ' + clock(Date.now() - call.startedAt) : '';
+    return (held ? 'On hold' : conf ? 'In conference' : 'Talking') + t;
+  }
+  if (!second) return '';
+  if (second.transferring) return 'Transferring…';
+  if (!second.answered) return second.what || 'Calling…';
+  const held = second.session && sm?.isHeld(second.session);
+  return (held ? 'On hold' : conf ? 'In conference' : 'Talking') + ' · ' + clock(Date.now() - second.startedAt);
+}
+function legRow(which, party, onDrop) {
+  const r = el('div', 'leg');
+  r.dataset.leg = which;
+  const tx = el('div', 'ltx');
+  tx.append(el('b', '', party.name || pretty(party.number) || 'Unknown'),
+            el('span', '', party.name ? pretty(party.number) : ''));
+  const st = el('span', '', legStatus(which));
+  st.dataset.status = which;
+  tx.appendChild(st);
+  const x = el('button', 'lx');
+  x.title = 'Hang up ' + (party.name || pretty(party.number) || 'this call');
+  x.innerHTML = '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg>';   // static icon
+  x.onclick = onDrop;
+  r.append(el('div', 'lav', initials(party.name)), tx, x);
+  return r;
+}
+function renderLegs() {
+  const box = $('#legs');
+  box.textContent = '';
+  if (!second || !call) return;
+  box.append(legRow('p', call, dropMain), legRow('s', second, dropSecond));
+  tickLegs();
+}
+function tickLegs() {
+  if (!second || !call) return;
+  const sm = user?.sm;
+  for (const which of ['p', 's']) {
+    const st = document.querySelector('[data-status="' + which + '"]');
+    if (st) st.textContent = legStatus(which);
+    const row = document.querySelector('.leg[data-leg="' + which + '"]');
+    const s = which === 'p' ? pSession : second.session;
+    const held = !!(s && sm?.isHeld(s));
+    if (row) { row.classList.toggle('held', held); row.classList.toggle('live', !held && (which === 's' ? second.answered : true)); }
+  }
+  $('#mWho').textContent = (call.name || pretty(call.number)) + ' & ' + (second.name || pretty(second.number));
+  $('#mNum').textContent = mode === 'conference' ? 'Conference' : legStatus('s');
+  paintBar();
+}
+function syncButtons() {
+  const sm = user?.sm, s = talking();
+  const muted = mix ? mix.muted : !!(s && sm?.isMuted(s));
+  for (const b of ['#muteBtn', '#mMute']) $(b).classList.toggle('on', muted);
+  const held = !!user?.isHeld?.();
+  for (const b of ['#holdBtn', '#mHold']) $(b).classList.toggle('on', held);
+}
+// Which controls show, for one call or two.
+function renderMulti() {
+  const multi = !!second;
+  const live = !!call?.answered;
+  $('#s-call').classList.toggle('multi', multi);
+  $('#holdBtn').hidden = $('#xferBtn').hidden = $('#addBtn').hidden = multi;
+  $('#parkBtn').hidden = multi || !parkCodes.park;
+  $('#flipBtn').hidden = multi || !myExt;
+  $('#addBtn').disabled = $('#flipBtn').disabled = !live;
+  $('#mHold').hidden = multi || !live;
+  const hb = $('#hangBtn').lastChild;
+  if (hb?.nodeType === 3) hb.textContent = multi ? 'End all' : 'End call';
+  if (multi) {
+    const ready = !!second.answered && !second.transferring;
+    $('#swapBtn').hidden = $('#joinBtn').hidden = mode !== 'consult';
+    $('#mergeBtn').hidden = mode === 'conference';
+    $('#swapBtn').disabled = $('#mergeBtn').disabled = $('#joinBtn').disabled = !ready;
+    if (!expanded) { expanded = true; layout(); }
+  }
+  renderLegs();
+  syncButtons();
+  paintBar();
+}
+
+$('#dial').oninput = refreshDial;
+$('#dial').onkeydown = (e) => {
+  if (e.key === 'Enter') { e.preventDefault(); dial($('#dial').value); }
+  if (e.key === 'Escape') { open = false; layout(); }
+};
+$('#callBtn').onclick = () => dial($('#dial').value);
+$('#delBtn').onclick = () => { $('#dial').value = $('#dial').value.slice(0, -1); refreshDial(); $('#dial').focus(); };
+$('#answerBtn').onclick = $('#mAnswer').onclick = answer;
+$('#declineBtn').onclick = decline;
+$('#hangBtn').onclick = () => (second ? endAll() : hangup());
+$('#mHang').onclick = () => (second ? endAll() : call && call.dir === 'in' && !call.answered ? decline() : hangup());
+$('#muteBtn').onclick = $('#mMute').onclick = toggleMute;
+$('#holdBtn').onclick = $('#mHold').onclick = toggleHold;
+$('#padBtn').onclick = () => { $('#dtmf').classList.toggle('on'); $('#padBtn').classList.toggle('on'); };
+$('#xferBtn').onclick = () => openXfer('transfer');
+$('#addBtn').onclick = () => openXfer('add');
+$('#parkBtn').onclick = park;
+$('#flipBtn').onclick = flip;
+$('#swapBtn').onclick = swap;
+$('#mergeBtn').onclick = merge;
+$('#joinBtn').onclick = joinTransfer;
+$('#xCancel').onclick = closeXfer;
+$('#xGo').onclick = doXfer;
+$('#xTalk').onclick = doConsult;
+$('#xTo').oninput = () => { xPick = null; renderXfer(); };
+$('#xTo').onkeydown = (e) => {
+  if (e.key === 'Enter' && !$('#xGo').disabled) { e.preventDefault(); doXfer(); }
+  if (e.key === 'Escape') closeXfer();
+};
+$('#xBtn').onclick = () => { open = false; layout(); };
+$('#minBtn').onclick = () => { expanded = false; layout(); };
+$('#expBtn').onclick = () => { expanded = true; layout(); };
+$('#goSetup').onclick = () => host.openMain('/account');
+$('#goSettings').onclick = () => host.openMain('/settings');
+
+chan.onmessage = (e) => {
+  const m = e.data || {};
+  if (m.type === 'ping') broadcast();
+  if (m.type === 'reload') start();
+  if (m.type === 'open') openDialer(m.number);
+  if (m.type === 'dial' && m.number) { openDialer(m.number); dial(m.number); }
+  if (m.type === 'show') { host.show(); openDialer(); }
+};
+host.onOpen?.(() => openDialer());
+
+host.onSound?.((d) => window.switchboardSounds?.play(d));
+window.addEventListener('beforeunload', () => { teardown(); });
+layout();
+start();
+loadParked();                       // park codes, for the Park button
+loadOrg().catch(() => {});          // your extension, for the Flip button
+</script>

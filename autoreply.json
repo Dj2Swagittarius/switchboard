@@ -1,0 +1,17 @@
+{
+  "_comment": "Auto-reply policy. OFF and DRY-RUN by default. Every gate must pass.",
+  "enabled": false,
+  "dryRun": true,
+  "mode": "template",
+  "disclose": true,
+  "disclosure": " (automated reply)",
+  "template": "Thanks — got your message. Someone will follow up shortly.",
+  "allowCategories": ["acknowledgement", "job_status"],
+  "allowRoles": ["technician"],
+  "blockUrgencies": ["high", "urgent"],
+  "requireKnownContact": true,
+  "onlyOutsideHours": true,
+  "hours": { "startHour": 8, "endHour": 18, "days": [1, 2, 3, 4, 5] },
+  "maxPerContactPerDay": 1,
+  "maxPerDay": 10
+}

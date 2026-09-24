@@ -1,0 +1,160 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Parked calls</title>
+<style>
+:root{
+  --bg:#f6f7f9; --panel:#fff; --ink:#14171c; --muted:#6b7480; --line:#e3e6ea;
+  --accent:#2f6df6; --urgent:#d93025; --high:#e8710a;
+  --ok:#1a7f37; --shadow:0 1px 2px rgba(0,0,0,.05),0 4px 12px rgba(0,0,0,.05);
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){
+  --bg:#0f1216; --panel:#171b21; --ink:#e6e9ee; --muted:#8b95a1; --line:#252b33;
+  --accent:#5b8dff; --urgent:#ff6b5e; --high:#ffa04d;
+  --ok:#4ade80; --shadow:0 1px 2px rgba(0,0,0,.4);
+}}
+:root[data-theme=dark]{
+  --bg:#0f1216; --panel:#171b21; --ink:#e6e9ee; --muted:#8b95a1; --line:#252b33;
+  --accent:#5b8dff; --urgent:#ff6b5e; --high:#ffa04d;
+  --ok:#4ade80; --shadow:0 1px 2px rgba(0,0,0,.4);
+}
+:root{color-scheme:light dark}
+:root[data-theme=light]{color-scheme:light}
+:root[data-theme=dark]{color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font:14px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+header{position:sticky;top:0;z-index:5;background:var(--panel);
+  border-bottom:1px solid var(--line);display:flex;align-items:center;gap:12px;padding:10px 16px}
+h1{font-size:15px;margin:0;font-weight:650;letter-spacing:-.01em}
+.grow{flex:1}
+.meta{color:var(--muted);font-size:12px}
+button{font:inherit;border:1px solid var(--line);background:var(--panel);color:var(--ink);
+  padding:6px 11px;border-radius:7px;cursor:pointer}
+button:hover{border-color:var(--accent)}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+button:disabled{opacity:.5;cursor:not-allowed}
+main{padding:16px;max-width:940px;margin:0 auto;display:grid;gap:12px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:11px;
+  box-shadow:var(--shadow);padding:12px 14px;display:flex;align-items:center;gap:14px}
+.slot{width:48px;height:48px;border-radius:12px;flex:none;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;border:1px solid var(--high);color:var(--high);line-height:1.1}
+.slot small{font-size:9.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase}
+.slot b{font-size:17px;font-variant-numeric:tabular-nums}
+.who{flex:1;min-width:0}
+.who b{display:block;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.who span{display:block;color:var(--muted);font-size:12.5px;font-variant-numeric:tabular-nums}
+.empty{text-align:center;color:var(--muted);padding:56px 20px}
+.note{font-size:12.5px;color:var(--muted);line-height:1.55}
+.note b{color:var(--ink);font-variant-numeric:tabular-nums}
+.err{color:var(--urgent)}
+</style>
+
+<script src="/nav.js"></script>
+<header>
+  <h1>Parked calls</h1>
+  <span class="meta" id="count"></span>
+  <span class="grow"></span>
+  <span class="meta" id="stat"></span>
+  <button type="button" id="refresh">Refresh</button>
+</header>
+<main id="app"><div class="empty">Loading&hellip;</div></main>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const pretty = (n) => {
+  const d = String(n || '').replace(/\D/g, '').slice(-10);
+  return d.length === 10 ? '(' + d.slice(0,3) + ') ' + d.slice(3,6) + '-' + d.slice(6) : (n || '');
+};
+const el = (tag, cls, text) => {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text != null) e.textContent = text;
+  return e;
+};
+const saved = localStorage.getItem('theme');
+if (saved) document.documentElement.dataset.theme = saved;
+
+// Slots come from /api/parked (the account's park lot). Picking one up dials
+// the account's retrieve code plus the slot, through the in-app phone when it's
+// connected (dialpad.js's switchboardCall), otherwise the default phone app.
+let codes = { park: null, retrieve: null };
+let loading = false;
+
+function pickUp(slot, btn) {
+  const code = (codes.retrieve || '') + slot;
+  if (!codes.retrieve || !window.switchboardCall) return;
+  btn.disabled = true;
+  btn.textContent = 'Picking up…';
+  window.switchboardCall(code);
+  setTimeout(load, 2500);               // the slot empties once the call is taken
+}
+
+function card(s) {
+  const c = el('div', 'card');
+  const slot = el('div', 'slot');
+  slot.append(el('small', '', 'Slot'), el('b', '', s.slot));
+  const who = el('div', 'who');
+  who.append(el('b', '', s.name || (s.number ? pretty(s.number) : 'Parked caller')),
+             el('span', '', s.name && s.number ? pretty(s.number) : (s.number ? 'Caller ID only' : 'No caller ID')));
+  const btn = el('button', 'primary', 'Pick up');
+  btn.type = 'button';
+  btn.disabled = !codes.retrieve;
+  btn.title = codes.retrieve ? 'Dials ' + codes.retrieve + s.slot : 'Your account has no pick-up code';
+  btn.onclick = () => pickUp(s.slot, btn);
+  c.append(slot, who, btn);
+  return c;
+}
+
+function help() {
+  const p = el('p', 'note');
+  if (!codes.park && !codes.retrieve) { p.textContent = 'Your account has no call park codes set up.'; return p; }
+  p.append('Park a call with the Park button on a call' + (codes.park ? ' (or dial ' : ''));
+  if (codes.park) { p.append(el('b', '', codes.park)); p.append(')'); }
+  p.append('. Pick it up here, or from any phone with ');
+  p.append(el('b', '', (codes.retrieve || codes.park) + ' + slot'));
+  p.append('.');
+  return p;
+}
+
+async function load() {
+  if (loading) return;
+  loading = true;
+  try {
+    const r = await fetch('/api/parked');
+    const j = await r.json().catch(() => ({}));
+    const app = $('#app');
+    app.textContent = '';
+    if (!r.ok || j.error) {
+      app.appendChild(el('div', 'empty err', j.code === 'no-account'
+        ? 'Parked calls need an account login (Settings → Account).'
+        : 'Could not load parked calls: ' + (j.error || 'HTTP ' + r.status)));
+      $('#count').textContent = '';
+      return;
+    }
+    codes = { park: j.park || null, retrieve: j.retrieve || j.park || null };
+    const slots = Array.isArray(j.slots) ? j.slots : [];
+    $('#count').textContent = slots.length ? slots.length + ' waiting' : '';
+    if (!slots.length) {
+      const e = el('div', 'empty');
+      e.append(el('div', '', 'No calls parked.'));
+      app.appendChild(e);
+    } else {
+      for (const s of slots) app.appendChild(card(s));
+    }
+    app.appendChild(help());
+    $('#stat').textContent = 'Updated ' + new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit' });
+  } catch (e) {
+    $('#stat').textContent = 'Offline, retrying…';
+  } finally {
+    loading = false;
+  }
+}
+
+// Every 5 seconds while the page is on screen: parked callers are waiting.
+$('#refresh').onclick = load;
+load();
+setInterval(() => { if (document.visibilityState === 'visible') load(); }, 5000);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') load(); });
+</script>
+<script src="/dialpad.js"></script>

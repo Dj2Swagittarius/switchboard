@@ -1,0 +1,12 @@
+import { loadSession, api } from '../lib/kazoo.mjs';
+import { fetchMedia, describeImage, VISION_MODEL } from '../lib/media.mjs';
+const s = loadSession();
+const me = (await api(s, `/users/${s.owner_id}`)).body.data;
+const all = (await api(s, `/messaging?localNumber=${encodeURIComponent(me.phone_number)}`)).body.data ?? [];
+const m = all.find(x => x.media?.length);
+console.log('model:', VISION_MODEL);
+const t0 = Date.now();
+const media = await fetchMedia(s, m.media[0], me.phone_number);
+console.log(`fetched ${media.buf.length} bytes ${media.mime} in ${Date.now() - t0}ms`);
+const t1 = Date.now();
+console.log('\ndescription:', await describeImage(media), `\n(${Date.now() - t1}ms)`);

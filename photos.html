@@ -1,0 +1,309 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Photos</title>
+<style>
+:root{
+  --bg:#f6f7f9; --panel:#fff; --ink:#14171c; --muted:#6b7480; --line:#e3e6ea;
+  --accent:#2f6df6; --urgent:#d93025; --ok:#1a7f37; --tile:#e9ecf0;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){
+  --bg:#0f1216; --panel:#171b21; --ink:#e6e9ee; --muted:#8b95a1; --line:#252b33;
+  --accent:#5b8dff; --urgent:#ff6b5e; --ok:#4ade80; --tile:#1e242c;
+}}
+:root[data-theme=dark]{
+  --bg:#0f1216; --panel:#171b21; --ink:#e6e9ee; --muted:#8b95a1; --line:#252b33;
+  --accent:#5b8dff; --urgent:#ff6b5e; --ok:#4ade80; --tile:#1e242c;
+}
+:root{color-scheme:light dark}
+:root[data-theme=light]{color-scheme:light}
+:root[data-theme=dark]{color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font:14px/1.45 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+header{position:sticky;top:0;z-index:5;background:var(--panel);border-bottom:1px solid var(--line)}
+.bar{display:flex;align-items:center;gap:10px;padding:10px 16px;flex-wrap:wrap}
+.bar2{display:flex;align-items:center;gap:8px;padding:0 16px 10px;flex-wrap:wrap}
+h1{font-size:15px;margin:0;font-weight:650}
+.grow{flex:1}
+.meta{color:var(--muted);font-size:12px}
+a.navlink{color:var(--muted);text-decoration:none;font-size:13px;padding:6px 10px;
+  border:1px solid var(--line);border-radius:7px}
+a.navlink:hover{color:var(--ink);border-color:var(--accent)}
+button,select,input{font:inherit;color:var(--ink)}
+button{border:1px solid var(--line);background:var(--panel);padding:6px 11px;border-radius:7px;cursor:pointer}
+button:hover{border-color:var(--accent)}
+button:disabled{opacity:.5;cursor:not-allowed}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+select,input{border:1px solid var(--line);background:var(--bg);padding:6px 9px;border-radius:7px}
+input[type=search]{min-width:200px}
+main{padding:12px 16px 40px;max-width:1300px;margin:0 auto}
+.day{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-weight:650;
+  margin:18px 2px 8px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px}
+.tile{position:relative;aspect-ratio:1;border-radius:10px;overflow:hidden;background:var(--tile);cursor:zoom-in;
+  border:2px solid transparent}
+.tile img{width:100%;height:100%;object-fit:cover;display:block;image-orientation:from-image}
+.tile .cap{position:absolute;left:0;right:0;bottom:0;padding:18px 8px 6px;font-size:11.5px;color:#fff;
+  background:linear-gradient(transparent,rgba(0,0,0,.72));white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tile .dir{position:absolute;top:6px;left:6px;font-size:10.5px;font-weight:700;color:#fff;background:rgba(0,0,0,.55);
+  border-radius:999px;padding:1px 7px}
+.tile .chk{position:absolute;top:6px;right:6px;width:22px;height:22px;border-radius:50%;border:2px solid #fff;
+  background:rgba(0,0,0,.35);display:none}
+.selecting .tile .chk{display:block}
+.tile.sel{border-color:var(--accent)}
+.tile.sel .chk{background:var(--accent);border-color:var(--accent)}
+.tile.sel .chk::after{content:'';position:absolute;left:6px;top:2px;width:5px;height:10px;border:solid #fff;
+  border-width:0 2px 2px 0;transform:rotate(45deg)}
+.empty{text-align:center;color:var(--muted);padding:60px 20px}
+.selbar{display:none;align-items:center;gap:8px}
+.selecting .selbar{display:flex}
+
+.lb{position:fixed;inset:0;background:rgba(8,10,13,.94);display:none;z-index:900;flex-direction:column}
+.lb.open{display:flex}
+.lbtop{display:flex;align-items:center;gap:10px;padding:10px 14px;color:#e6e9ee}
+.lbtop .who{font-weight:650}
+.lbtop .meta{color:#a4adb8}
+.lbtop button,.lbtop a{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.16);color:#fff;
+  text-decoration:none;padding:6px 11px;border-radius:7px;font-size:13px}
+.lbmid{flex:1;display:flex;align-items:center;justify-content:center;min-height:0;position:relative}
+.lbmid img{max-width:92vw;max-height:100%;object-fit:contain;image-orientation:from-image}
+.nav{position:absolute;top:50%;transform:translateY(-50%);width:46px;height:64px;border-radius:10px;border:0;
+  background:rgba(255,255,255,.08);color:#fff;font-size:26px;cursor:pointer}
+.nav:hover{background:rgba(255,255,255,.16)}
+.nav.prev{left:12px}.nav.next{right:12px}
+.lbtext{color:#cfd5dc;text-align:center;padding:8px 16px 14px;font-size:13.5px;min-height:20px}
+</style>
+
+<script src="/nav.js"></script>
+<header>
+  <div class="bar">
+    <h1>Photos</h1>
+    <span class="meta" id="count"></span>
+    <span class="grow"></span>
+    <span class="meta" id="stat"></span>
+  </div>
+  <div class="bar2">
+    <input type="search" id="q" placeholder="Search name, number or message">
+    <select id="conv"><option value="">All conversations</option></select>
+    <select id="dir">
+      <option value="">Sent &amp; received</option>
+      <option value="in">Received</option>
+      <option value="out">Sent</option>
+    </select>
+    <select id="days">
+      <option value="7">7 days</option>
+      <option value="30">30 days</option>
+      <option value="90">90 days</option>
+      <option value="0" selected>All time</option>
+    </select>
+    <span class="grow"></span>
+    <span class="selbar">
+      <span class="meta" id="selcount">0 selected</span>
+      <button id="selall">Select all shown</button>
+      <button class="primary" id="dlsel" disabled>Download selected</button>
+    </span>
+    <button id="selmode">Select</button>
+    <button class="primary" id="dlall">Download all shown</button>
+  </div>
+</header>
+<main id="app"><div class="empty">Loading photos&hellip; the first load reads every conversation and can take ~20s.</div></main>
+
+<div class="lb" id="lb">
+  <div class="lbtop">
+    <span class="who" id="lbwho"></span>
+    <span class="meta" id="lbwhen"></span>
+    <span class="grow"></span>
+    <a id="lbconv" href="#">Open conversation</a>
+    <a id="lbdl" href="#" download>Download</a>
+    <button id="lbx">Close</button>
+  </div>
+  <div class="lbmid">
+    <button class="nav prev" id="lbprev" title="Previous (Left)">&#8249;</button>
+    <img id="lbimg" alt="">
+    <button class="nav next" id="lbnext" title="Next (Right)">&#8250;</button>
+  </div>
+  <div class="lbtext" id="lbtext"></div>
+</div>
+
+<form id="zipform" method="POST" action="/api/photos/zip" style="display:none"><input name="ids"></form>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const el = (tag, cls, text) => {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text != null) e.textContent = text;
+  return e;
+};
+const digits = (s) => String(s || '').replace(/\D/g, '');
+const pretty = (n) => {
+  const d = digits(n).slice(-10);
+  return d.length === 10 ? '(' + d.slice(0,3) + ') ' + d.slice(3,6) + '-' + d.slice(6) : (n || '');
+};
+const saved = localStorage.getItem('theme');
+if (saved) document.documentElement.dataset.theme = saved;
+
+let all = [];
+let shown = [];
+let selecting = false;
+const selected = new Set();
+let lbIndex = -1;
+
+const src = (p, extra = '') => '/api/media?id=' + encodeURIComponent(p.id) + '&line=' + encodeURIComponent(p.line) + extra;
+const who = (p) => p.name || pretty(p.remote);
+const key = (p) => p.line + '|' + p.remote;
+
+function dayLabel(ms) {
+  const d = new Date(ms), now = new Date();
+  const days = Math.floor((new Date(now.toDateString()) - new Date(d.toDateString())) / 864e5);
+  if (days === 0) return 'Today';
+  if (days === 1) return 'Yesterday';
+  return d.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+}
+
+function filter() {
+  const q = $('#q').value.trim().toLowerCase();
+  const qd = digits(q);
+  const conv = $('#conv').value;
+  const dir = $('#dir').value;
+  const days = Number($('#days').value);
+  const since = days ? Date.now() - days * 864e5 : 0;
+  return all.filter(p =>
+    (!conv || key(p) === conv) &&
+    (!dir || (dir === 'in') === p.inbound) &&
+    p.at >= since &&
+    (!q || who(p).toLowerCase().includes(q) || (qd && digits(p.remote).includes(qd)) ||
+      (p.text || '').toLowerCase().includes(q)));
+}
+
+function render() {
+  shown = filter();
+  const app = $('#app');
+  app.textContent = '';
+  $('#count').textContent = shown.length + ' of ' + all.length;
+  $('#dlall').disabled = !shown.length;
+  if (!shown.length) { app.appendChild(el('div', 'empty', all.length ? 'No photos match.' : 'No photos yet.')); return; }
+
+  let grid = null, last = '';
+  shown.forEach((p, i) => {
+    const dl = dayLabel(p.at);
+    if (dl !== last) {
+      app.appendChild(el('div', 'day', dl));
+      grid = el('div', 'grid');
+      app.appendChild(grid);
+      last = dl;
+    }
+    const t = el('div', 'tile' + (selected.has(p.id) ? ' sel' : ''));
+    const img = el('img');
+    img.loading = 'lazy';
+    img.alt = 'Photo from ' + who(p);
+    img.src = src(p, '&thumb=1');
+    t.appendChild(img);
+    t.appendChild(el('span', 'dir', p.inbound ? 'IN' : 'SENT'));
+    t.appendChild(el('span', 'chk'));
+    t.appendChild(el('div', 'cap', who(p) + ' · ' +
+      new Date(p.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })));
+    t.onclick = () => {
+      if (selecting) {
+        selected.has(p.id) ? selected.delete(p.id) : selected.add(p.id);
+        t.classList.toggle('sel', selected.has(p.id));
+        updateSel();
+      } else openLb(i);
+    };
+    grid.appendChild(t);
+  });
+}
+
+function fillConvs() {
+  const sel = $('#conv');
+  const cur = sel.value;
+  const counts = new Map();
+  for (const p of all) {
+    const k = key(p);
+    if (!counts.has(k)) counts.set(k, { p, n: 0 });
+    counts.get(k).n++;
+  }
+  sel.textContent = '';
+  const a = el('option', '', 'All conversations'); a.value = ''; sel.appendChild(a);
+  for (const [k, { p, n }] of [...counts].sort((x, y) => y[1].n - x[1].n)) {
+    const o = el('option', '', who(p) + ' (' + n + ')');
+    o.value = k;
+    sel.appendChild(o);
+  }
+  sel.value = cur;
+}
+
+function updateSel() {
+  $('#selcount').textContent = selected.size + ' selected';
+  $('#dlsel').disabled = !selected.size;
+}
+
+function downloadZip(ids) {
+  if (!ids.length) return;
+  if (ids.length > 300) { $('#stat').textContent = 'Max 300 photos per zip — narrow the filter.'; return; }
+  const f = $('#zipform');
+  f.ids.value = ids.join(',');
+  f.submit();
+  $('#stat').textContent = 'Preparing zip of ' + ids.length + ' photo' + (ids.length === 1 ? '' : 's') + '…';
+  setTimeout(() => { $('#stat').textContent = ''; }, 6000);
+}
+
+// ---- lightbox ----------------------------------------------------------------
+function openLb(i) {
+  lbIndex = i;
+  const p = shown[i];
+  $('#lbimg').src = src(p);
+  $('#lbwho').textContent = who(p) + (p.name ? '  ' + pretty(p.remote) : '');
+  $('#lbwhen').textContent = (p.inbound ? 'Received ' : 'Sent ') + new Date(p.at).toLocaleString() +
+    '  ·  ' + (i + 1) + ' / ' + shown.length;
+  $('#lbtext').textContent = p.text || '';
+  $('#lbdl').href = src(p, '&download=1');
+  $('#lbconv').href = '/messages?line=' + encodeURIComponent(p.line) + '&remote=' + encodeURIComponent(p.remote);
+  $('#lbprev').style.visibility = i > 0 ? 'visible' : 'hidden';
+  $('#lbnext').style.visibility = i < shown.length - 1 ? 'visible' : 'hidden';
+  $('#lb').classList.add('open');
+  // warm the neighbours so arrowing through feels instant
+  for (const j of [i - 1, i + 1]) if (shown[j]) { const im = new Image(); im.src = src(shown[j]); }
+}
+const closeLb = () => { $('#lb').classList.remove('open'); lbIndex = -1; };
+$('#lbx').onclick = closeLb;
+$('#lbprev').onclick = () => lbIndex > 0 && openLb(lbIndex - 1);
+$('#lbnext').onclick = () => lbIndex < shown.length - 1 && openLb(lbIndex + 1);
+$('.lbmid').onclick = (e) => { if (e.target.classList.contains('lbmid')) closeLb(); };
+document.addEventListener('keydown', (e) => {
+  if (lbIndex < 0) return;
+  if (e.key === 'Escape') closeLb();
+  if (e.key === 'ArrowLeft' && lbIndex > 0) openLb(lbIndex - 1);
+  if (e.key === 'ArrowRight' && lbIndex < shown.length - 1) openLb(lbIndex + 1);
+});
+
+// ---- controls ------------------------------------------------------------------
+$('#selmode').onclick = () => {
+  selecting = !selecting;
+  document.body.classList.toggle('selecting', selecting);
+  $('#selmode').textContent = selecting ? 'Done' : 'Select';
+  if (!selecting) { selected.clear(); updateSel(); render(); }
+};
+$('#selall').onclick = () => { for (const p of shown) selected.add(p.id); updateSel(); render(); };
+$('#dlsel').onclick = () => downloadZip([...selected]);
+$('#dlall').onclick = () => downloadZip(shown.map(p => p.id));
+for (const id of ['#q', '#conv', '#dir', '#days']) $(id).addEventListener(id === '#q' ? 'input' : 'change', render);
+
+(async () => {
+  const p = new URLSearchParams(location.search);
+  try {
+    const d = await (await fetch('/api/photos')).json();
+    if (d.error) throw new Error(d.error);
+    all = d.photos || [];
+  } catch (e) {
+    $('#app').textContent = '';
+    $('#app').appendChild(el('div', 'empty', 'Could not load photos: ' + e.message));
+    return;
+  }
+  fillConvs();
+  if (p.get('remote') && p.get('line')) $('#conv').value = p.get('line') + '|' + p.get('remote');
+  render();
+})();
+</script>
+<script src="/dialpad.js"></script>

@@ -1,0 +1,397 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Triage</title>
+<style>
+:root{
+  --bg:#f6f7f9; --panel:#fff; --ink:#14171c; --muted:#6b7480; --line:#e3e6ea;
+  --accent:#2f6df6; --urgent:#d93025; --high:#e8710a;
+  --ok:#1a7f37; --shadow:0 1px 2px rgba(0,0,0,.05),0 4px 12px rgba(0,0,0,.05);
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){
+  --bg:#0f1216; --panel:#171b21; --ink:#e6e9ee; --muted:#8b95a1; --line:#252b33;
+  --accent:#5b8dff; --urgent:#ff6b5e; --high:#ffa04d;
+  --ok:#4ade80; --shadow:0 1px 2px rgba(0,0,0,.4);
+}}
+:root[data-theme=dark]{
+  --bg:#0f1216; --panel:#171b21; --ink:#e6e9ee; --muted:#8b95a1; --line:#252b33;
+  --accent:#5b8dff; --urgent:#ff6b5e; --high:#ffa04d;
+  --ok:#4ade80; --shadow:0 1px 2px rgba(0,0,0,.4);
+}
+:root{color-scheme:light dark}
+:root[data-theme=light]{color-scheme:light}
+:root[data-theme=dark]{color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font:14px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+header{position:sticky;top:0;z-index:5;background:var(--panel);
+  border-bottom:1px solid var(--line)}
+.bar{display:flex;align-items:center;gap:12px;padding:10px 16px}
+.bar2{display:flex;align-items:center;gap:8px;padding:0 16px 10px;flex-wrap:wrap}
+h1{font-size:15px;margin:0;font-weight:650;letter-spacing:-.01em}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--muted);flex:none}
+.dot.live{background:var(--ok)}
+.dot.busy{background:var(--high);animation:p 1s infinite}
+@keyframes p{50%{opacity:.3}}
+.grow{flex:1}
+.meta{color:var(--muted);font-size:12px}
+button{font:inherit;border:1px solid var(--line);background:var(--panel);color:var(--ink);
+  padding:6px 11px;border-radius:7px;cursor:pointer}
+button:hover{border-color:var(--accent)}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+button.primary:disabled{opacity:.5;cursor:not-allowed}
+button.danger:hover{border-color:var(--urgent);color:var(--urgent)}
+button.confirm{background:var(--urgent);border-color:var(--urgent);color:#fff;font-weight:600}
+.chip{display:inline-flex;align-items:center;gap:7px;padding:5px 11px;border-radius:999px;
+  border:1px solid var(--line);background:var(--panel);color:var(--muted);cursor:pointer;
+  font-size:12.5px;font-variant-numeric:tabular-nums}
+.chip:hover{border-color:var(--accent)}
+.chip .led{width:7px;height:7px;border-radius:50%;background:var(--muted);flex:none}
+.chip.on{color:var(--ink);border-color:var(--ok)}
+.chip.on .led{background:var(--ok)}
+.chip .lbl{font-size:11px;opacity:.7}
+main{padding:16px;max-width:940px;margin:0 auto;display:grid;gap:12px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:11px;
+  box-shadow:var(--shadow);overflow:hidden}
+.card.urgent{border-left:3px solid var(--urgent)}
+.card.high{border-left:3px solid var(--high)}
+.top{display:flex;align-items:center;gap:9px;padding:11px 14px;flex-wrap:wrap}
+.who{font-weight:650}
+.tag{font-size:11px;padding:2px 8px;border-radius:999px;border:1px solid var(--line);
+  color:var(--muted);text-transform:uppercase;letter-spacing:.04em;font-weight:600}
+.tag.urgent{color:var(--urgent);border-color:var(--urgent)}
+.tag.high{color:var(--high);border-color:var(--high)}
+.tag.human{color:var(--urgent);border-color:var(--urgent)}
+.tag.line{text-transform:none;letter-spacing:0;font-variant-numeric:tabular-nums}
+.body{padding:0 14px 12px}
+.msg{white-space:pre-wrap;word-break:break-word;background:var(--bg);
+  border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin-bottom:9px}
+.img{color:var(--muted);font-style:italic}
+.sum{color:var(--muted);margin-bottom:10px}
+textarea{width:100%;min-height:66px;resize:vertical;font:inherit;padding:10px 12px;
+  border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--ink)}
+textarea:focus{outline:2px solid var(--accent);outline-offset:-1px;border-color:transparent}
+.acts{display:flex;gap:8px;align-items:center;margin-top:9px;flex-wrap:wrap}
+select{font:inherit;padding:5px 8px;border-radius:7px;border:1px solid var(--line);
+  background:var(--panel);color:var(--ink)}
+.empty{text-align:center;color:var(--muted);padding:56px 20px}
+.note{font-size:12px;color:var(--muted)}
+.err{color:var(--urgent)}
+.thread{margin-top:10px;border-top:1px solid var(--line);padding-top:10px;display:none}
+.thread.open{display:block}
+.tsum{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin-bottom:9px}
+.tsum .lead{margin-bottom:6px}
+.tsum ul{margin:6px 0 0;padding-left:18px}
+.tsum .wait{font-size:12px;color:var(--muted);margin-top:6px}
+.turn{display:grid;grid-template-columns:64px 1fr;gap:9px;font-size:13px;padding:3px 0}
+.turn .w{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.04em;padding-top:2px}
+.turn.them .b{color:var(--ink)}
+.turn.us .b{color:var(--muted)}
+.turn .b{white-space:pre-wrap;word-break:break-word}
+.navlink{color:var(--muted);text-decoration:none;font-size:13px;padding:6px 10px;
+  border:1px solid var(--line);border-radius:7px}
+.navlink:hover{color:var(--ink);border-color:var(--accent)}
+</style>
+
+<script src="/nav.js"></script>
+<header>
+  <div class="bar">
+    <span class="dot" id="dot"></span>
+    <h1>Triage</h1>
+    <span class="grow"></span>
+    <span class="meta" id="stat"></span>
+    <button id="sync">Check now</button>
+  </div>
+  <div class="bar2">
+    <span class="meta">Lines</span>
+    <span id="chips"></span>
+    <span class="grow"></span>
+    <span class="meta">Showing</span>
+    <select id="filter"><option value="">All lines</option></select>
+  </div>
+</header>
+<main id="app"><div class="empty">Loading&hellip;</div></main>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const pretty = (n) => {
+  const d = String(n || '').replace(/\D/g, '').slice(-10);
+  return d.length === 10 ? '(' + d.slice(0,3) + ') ' + d.slice(3,6) + '-' + d.slice(6) : (n || '');
+};
+const same = (a, b) => String(a||'').replace(/\D/g,'').slice(-10) === String(b||'').replace(/\D/g,'').slice(-10);
+
+let state = { pending: [], contacts: {}, roles: [], lines: [] };
+let filter = localStorage.getItem('lineFilter') || '';
+
+const saved = localStorage.getItem('theme');
+if (saved) document.documentElement.dataset.theme = saved;
+
+async function load() {
+  state = await (await fetch('/api/state')).json();
+  renderLines();
+  render();
+}
+
+function renderLines() {
+  const chips = $('#chips');
+  chips.textContent = '';
+  for (const l of state.lines) {
+    const on = l.active !== false;
+    const c = document.createElement('span');
+    c.className = 'chip' + (on ? ' on' : '');
+    c.title = on ? 'Being watched — click to stop' : 'Not watched — click to enable';
+
+    const led = document.createElement('span'); led.className = 'led';
+    const num = document.createElement('span'); num.textContent = pretty(l.number);
+    c.appendChild(led); c.appendChild(num);
+    if (l.label) { const s = document.createElement('span'); s.className = 'lbl'; s.textContent = l.label; c.appendChild(s); }
+
+    c.onclick = async () => {
+      c.style.opacity = '.5';
+      const r = await fetch('/api/lines', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ number: l.number, active: !on }) }).then(r => r.json());
+      if (r.error) alert('Could not change line: ' + r.error);
+      load();
+    };
+    chips.appendChild(c);
+  }
+
+  const sel = $('#filter');
+  const cur = filter;
+  sel.textContent = '';
+  const all = document.createElement('option');
+  all.value = ''; all.textContent = 'All lines';
+  sel.appendChild(all);
+  for (const l of state.lines) {
+    const o = document.createElement('option');
+    o.value = l.number;
+    o.textContent = pretty(l.number) + (l.active === false ? ' (off)' : '');
+    if (same(cur, l.number)) o.selected = true;
+    sel.appendChild(o);
+  }
+  sel.onchange = () => {
+    filter = sel.value;
+    try { localStorage.setItem('lineFilter', filter); } catch {}
+    render();
+  };
+}
+
+function render() {
+  const app = $('#app');
+  app.textContent = '';
+
+  const multi = state.lines.length > 1;
+  const items = filter ? state.pending.filter(e => same(e.local, filter)) : state.pending;
+
+  if (!items.length) {
+    const d = document.createElement('div');
+    d.className = 'empty';
+    const watched = state.lines.filter(l => l.active !== false);
+    if (!watched.length) {
+      d.innerHTML = 'No lines are being watched.<br><span class="note">Turn one on above.</span>';
+    } else if (filter && state.pending.length) {
+      d.innerHTML = 'Nothing on this line.<br><span class="note">Other lines have messages — switch to All lines.</span>';
+    } else {
+      d.innerHTML = 'Queue empty.<br><span class="note">New messages appear here automatically.</span>';
+    }
+    app.appendChild(d);
+    return;
+  }
+
+  for (const e of items) {
+    const known = state.contacts[e.remote];
+    const card = document.createElement('div');
+    card.className = 'card ' + (e.urgency || '');
+
+    const top = document.createElement('div');
+    top.className = 'top';
+    const who = document.createElement('span');
+    who.className = 'who'; who.textContent = pretty(e.remote);
+    top.appendChild(who);
+    const nm = e.name || (known && known.name);
+    if (nm) { const s = document.createElement('span'); s.className = 'meta'; s.textContent = nm; top.appendChild(s); }
+    for (const [txt, cls] of [[e.urgency, e.urgency], [e.category, ''], [e.from_role, '']]) {
+      const t = document.createElement('span'); t.className = 'tag ' + cls; t.textContent = txt; top.appendChild(t);
+    }
+    if (e.needs_human) {
+      const t = document.createElement('span'); t.className = 'tag human'; t.textContent = 'needs you'; top.appendChild(t);
+    }
+    if (multi) {
+      const t = document.createElement('span'); t.className = 'tag line';
+      t.textContent = 'via ' + pretty(e.local);
+      t.title = 'Arrived on this line — the reply goes out from it too';
+      top.appendChild(t);
+    }
+    const g = document.createElement('span'); g.className = 'grow'; top.appendChild(g);
+    const when = document.createElement('span'); when.className = 'meta';
+    when.textContent = new Date(e.at).toLocaleString(); top.appendChild(when);
+    card.appendChild(top);
+
+    const body = document.createElement('div');
+    body.className = 'body';
+
+    const msg = document.createElement('div');
+    msg.className = 'msg';
+    for (const line of String(e.text || '').split('\n')) {
+      const d = document.createElement('div');
+      if (/^\[image \d+:/.test(line)) d.className = 'img';
+      d.textContent = line;
+      msg.appendChild(d);
+    }
+    body.appendChild(msg);
+
+    const sum = document.createElement('div');
+    sum.className = 'sum';
+    sum.textContent = e.summary + (e.needs_human ? ' — ' + e.reason : '');
+    body.appendChild(sum);
+
+    const ta = document.createElement('textarea');
+    ta.placeholder = 'Write a reply…';
+    ta.value = e.suggested_reply || '';
+    body.appendChild(ta);
+
+    const acts = document.createElement('div');
+    acts.className = 'acts';
+    const sendBtn = document.createElement('button');
+    sendBtn.className = 'primary'; sendBtn.textContent = 'Send';
+    const rejBtn = document.createElement('button');
+    rejBtn.className = 'danger'; rejBtn.textContent = 'Dismiss';
+    const roleSel = document.createElement('select');
+    for (const r of state.roles) {
+      const o = document.createElement('option');
+      o.textContent = r;
+      if (((known && known.role) || e.from_role) === r) o.selected = true;
+      roleSel.appendChild(o);
+    }
+    const thrBtn = document.createElement('button');
+    thrBtn.textContent = 'Catch me up';
+    thrBtn.title = 'Summarize this whole conversation';
+    const grow2 = document.createElement('span'); grow2.className = 'grow';
+    const out = document.createElement('span'); out.className = 'note';
+    acts.append(sendBtn, rejBtn, thrBtn, roleSel, grow2, out);
+    body.appendChild(acts);
+
+    const thread = document.createElement('div');
+    thread.className = 'thread';
+    body.appendChild(thread);
+    card.appendChild(body);
+
+    let loaded = false;
+    thrBtn.onclick = async () => {
+      if (loaded) {
+        thread.classList.toggle('open');
+        thrBtn.textContent = thread.classList.contains('open') ? 'Hide thread' : 'Catch me up';
+        return;
+      }
+      thrBtn.disabled = true; thrBtn.textContent = 'Reading…';
+      let d;
+      try {
+        d = await (await fetch('/api/thread?remote=' + encodeURIComponent(e.remote) + '&summary=1')).json();
+      } catch (err) { thrBtn.disabled = false; thrBtn.textContent = 'Catch me up';
+                      out.textContent = 'Could not load thread.'; return; }
+
+      thread.textContent = '';
+      if (d.summary) {
+        const box = document.createElement('div'); box.className = 'tsum';
+        const lead = document.createElement('div'); lead.className = 'lead';
+        lead.textContent = d.summary.summary; box.appendChild(lead);
+        if ((d.summary.open_items || []).length) {
+          const ul = document.createElement('ul');
+          for (const it of d.summary.open_items) {
+            const li = document.createElement('li'); li.textContent = it; ul.appendChild(li);
+          }
+          box.appendChild(ul);
+        }
+        const w = document.createElement('div'); w.className = 'wait';
+        const who = { us: 'Waiting on you.', them: 'Waiting on them.', nobody: 'Nothing outstanding.' };
+        w.textContent = who[d.summary.waiting_on] || '';
+        if (d.summary.last_ask) w.textContent += '  Last ask: ' + d.summary.last_ask;
+        box.appendChild(w);
+        thread.appendChild(box);
+      } else if (d.error) {
+        const er = document.createElement('div'); er.className = 'err';
+        er.textContent = 'Summary failed: ' + d.error;
+        thread.appendChild(er);
+      }
+
+      for (const t of (d.messages || [])) {
+        const row = document.createElement('div');
+        row.className = 'turn ' + (t.inbound ? 'them' : 'us');
+        const w = document.createElement('div'); w.className = 'w';
+        w.textContent = t.inbound ? 'them' : 'you';
+        const b = document.createElement('div'); b.className = 'b';
+        b.textContent = t.text || '(no text)';
+        row.append(w, b);
+        thread.appendChild(row);
+      }
+
+      loaded = true;
+      thread.classList.add('open');
+      thrBtn.disabled = false;
+      thrBtn.textContent = 'Hide thread';
+    };
+
+    let armed = false;
+    sendBtn.onclick = async () => {
+      if (!ta.value.trim()) { out.textContent = 'Nothing to send.'; return; }
+      if (!armed) {
+        armed = true;
+        sendBtn.textContent = 'Really send to ' + pretty(e.remote) + '?';
+        sendBtn.classList.add('confirm');
+        out.textContent = 'From ' + pretty(e.local) + '. Click again to confirm.';
+        setTimeout(() => {
+          if (armed) { armed = false; sendBtn.textContent = 'Send';
+            sendBtn.classList.remove('confirm'); out.textContent = ''; }
+        }, 6000);
+        return;
+      }
+      sendBtn.disabled = true; out.textContent = 'Sending…';
+      const r = await fetch('/api/send', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: e.id, text: ta.value, dryRun: false }) }).then(r => r.json());
+      if (r.ok) { out.textContent = 'Sent.'; load(); }
+      else {
+        out.textContent = '';
+        const err = document.createElement('span');
+        err.className = 'err';
+        err.textContent = 'Failed: ' + (r.error || r.status || 'unknown');
+        out.appendChild(err);
+        sendBtn.disabled = false; armed = false;
+        sendBtn.textContent = 'Send'; sendBtn.classList.remove('confirm');
+      }
+    };
+
+    rejBtn.onclick = async () => {
+      await fetch('/api/reject', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: e.id }) });
+      load();
+    };
+
+    roleSel.onchange = async (ev) => {
+      await fetch('/api/contact', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ number: e.remote, role: ev.target.value, name: (known && known.name) || '' }) });
+      out.textContent = 'Saved as ' + ev.target.value + '.';
+    };
+
+    app.appendChild(card);
+  }
+}
+
+$('#sync').onclick = () => fetch('/api/sync', { method: 'POST',
+  headers: { 'Content-Type': 'application/json' }, body: '{}' });
+
+const es = new EventSource('/api/events');
+es.addEventListener('status', (m) => {
+  const s = JSON.parse(m.data);
+  $('#dot').className = 'dot ' + (s.busy ? 'busy' : 'live');
+  $('#stat').textContent = s.lastError ? 'error: ' + s.lastError
+    : s.busy ? 'checking…'
+    : s.lastSync ? 'checked ' + new Date(s.lastSync).toLocaleTimeString() : '';
+});
+es.addEventListener('queue', load);
+es.addEventListener('item', load);
+es.addEventListener('lines', load);
+es.onerror = () => { $('#dot').className = 'dot'; };
+
+load();
+</script>
+<script src="/dialpad.js"></script>

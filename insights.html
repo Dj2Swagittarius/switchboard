@@ -1,0 +1,388 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Insights</title>
+<style>
+:root{
+  --bg:#f6f7f9; --panel:#fff; --ink:#14171c; --muted:#6b7480; --line:#e3e6ea;
+  --accent:#2f6df6; --urgent:#d93025; --high:#e8710a;
+  --ok:#1a7f37; --shadow:0 1px 2px rgba(0,0,0,.05),0 4px 12px rgba(0,0,0,.05);
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){
+  --bg:#0f1216; --panel:#171b21; --ink:#e6e9ee; --muted:#8b95a1; --line:#252b33;
+  --accent:#5b8dff; --urgent:#ff6b5e; --high:#ffa04d;
+  --ok:#4ade80; --shadow:0 1px 2px rgba(0,0,0,.4);
+}}
+:root[data-theme=dark]{
+  --bg:#0f1216; --panel:#171b21; --ink:#e6e9ee; --muted:#8b95a1; --line:#252b33;
+  --accent:#5b8dff; --urgent:#ff6b5e; --high:#ffa04d;
+  --ok:#4ade80; --shadow:0 1px 2px rgba(0,0,0,.4);
+}
+:root{color-scheme:light dark}
+:root[data-theme=light]{color-scheme:light}
+:root[data-theme=dark]{color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font:14px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+header{position:sticky;top:0;z-index:5;background:var(--panel);
+  border-bottom:1px solid var(--line);display:flex;align-items:center;gap:12px;padding:10px 16px}
+h1{font-size:15px;margin:0;font-weight:650;letter-spacing:-.01em}
+.grow{flex:1}
+.meta{color:var(--muted);font-size:12px}
+a.navlink{color:var(--muted);text-decoration:none;font-size:13px;padding:6px 10px;
+  border:1px solid var(--line);border-radius:7px}
+a.navlink:hover{color:var(--ink);border-color:var(--accent)}
+button,select{font:inherit;border:1px solid var(--line);background:var(--panel);
+  color:var(--ink);padding:6px 10px;border-radius:7px;cursor:pointer}
+button:hover{border-color:var(--accent)}
+main{padding:16px;max-width:1000px;margin:0 auto;display:grid;gap:14px}
+section{background:var(--panel);border:1px solid var(--line);border-radius:11px;
+  box-shadow:var(--shadow);padding:14px 16px}
+h2{font-size:12px;margin:0 0 12px;color:var(--muted);text-transform:uppercase;
+  letter-spacing:.06em;font-weight:650}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px}
+.tile .n{font-size:26px;font-weight:640;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.tile .k{font-size:12px;color:var(--muted)}
+.tile.warn .n{color:var(--high)}
+.tile.bad .n{color:var(--urgent)}
+.rows{display:grid;gap:7px}
+.row{display:grid;grid-template-columns:140px 1fr 52px;align-items:center;gap:10px;font-size:13px}
+.row .lbl{color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  font-variant-numeric:tabular-nums}
+.row .val{text-align:right;font-variant-numeric:tabular-nums;color:var(--muted)}
+.bar{height:9px;border-radius:5px;background:var(--accent);min-width:2px}
+.bar.alt{background:var(--muted)}
+.bar.bad{background:var(--urgent)}
+.hours{display:grid;grid-template-columns:repeat(24,1fr);gap:2px;align-items:end;height:74px}
+.hours div{background:var(--accent);border-radius:2px 2px 0 0;min-height:2px}
+.hlabels{display:grid;grid-template-columns:repeat(24,1fr);gap:2px;
+  font-size:9px;color:var(--muted);text-align:center;margin-top:4px}
+.empty{color:var(--muted);font-size:13px}
+.note{font-size:12px;color:var(--muted);margin-top:10px;line-height:1.5}
+#app{display:contents}
+
+/* Morning recap */
+.rhead{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+.rhead h2{margin:0;flex:1}
+.rstate{font-size:12.5px;color:var(--muted)}
+.rstate.bad{color:var(--urgent)}
+.headline{font-size:19px;font-weight:650;letter-spacing:-.01em;line-height:1.35;margin:0 0 6px}
+.overview{margin:0 0 14px;line-height:1.6}
+.rlist{display:grid;gap:8px;margin:0 0 14px}
+.fu{display:grid;grid-template-columns:auto 1fr auto;gap:4px 12px;align-items:start;padding:10px 12px;
+  border:1px solid var(--line);border-radius:12px;background:var(--bg)}
+.fu .who{grid-column:2;font-weight:650;font-variant-numeric:tabular-nums}
+.fu .what{grid-column:2}
+.fu .why{grid-column:2;font-size:12.5px;color:var(--muted)}
+.fu .acts{grid-row:1 / span 3;grid-column:3;display:flex;gap:6px}
+.fu .acts button,.fu .acts a{font-size:12.5px;padding:4px 10px}
+.fu .acts a{color:var(--ink);text-decoration:none;border:1px solid var(--line);border-radius:7px;background:var(--bg)}
+.prio{grid-row:1 / span 3;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;
+  padding:2px 8px;border-radius:999px;border:1px solid currentColor;margin-top:2px}
+.prio.high{color:var(--urgent)} .prio.normal{color:var(--accent)} .prio.low{color:var(--muted)}
+.src{font-size:11px;color:var(--muted);margin-left:6px;font-weight:500}
+.plain{margin:0 0 14px;padding-left:18px;line-height:1.6}
+.plain.watch li::marker{color:var(--high)}
+.rstats{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:12.5px;color:var(--muted);
+  border-top:1px solid var(--line);padding-top:10px;font-variant-numeric:tabular-nums}
+.rstats b{color:var(--ink)}
+@media (max-width:640px){ .fu{grid-template-columns:1fr} .prio,.fu .acts,.fu .what,.fu .why{grid-column:1;grid-row:auto} }
+</style>
+
+<script src="/nav.js"></script>
+<header>
+  <h1>Insights</h1>
+  <span class="meta" id="win"></span>
+  <span class="grow"></span>
+  <select id="days">
+    <option value="7">7 days</option>
+    <option value="30" selected>30 days</option>
+    <option value="90">90 days</option>
+    <option value="365">1 year</option>
+  </select>
+</header>
+<main>
+  <section class="recap" id="recap" style="display:none"><div class="empty">Loading&hellip;</div></section>
+  <div id="app"><section><div class="empty">Loading&hellip;</div></section></div>
+</main>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const pretty = (n) => {
+  const d = String(n || '').replace(/\D/g, '').slice(-10);
+  return d.length === 10 ? '(' + d.slice(0,3) + ') ' + d.slice(3,6) + '-' + d.slice(6) : (n || '');
+};
+const saved = localStorage.getItem('theme');
+if (saved) document.documentElement.dataset.theme = saved;
+
+const el = (tag, cls, text) => {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text != null) e.textContent = text;
+  return e;
+};
+
+function tiles(items) {
+  const wrap = el('div', 'tiles');
+  for (const [k, n, cls] of items) {
+    const t = el('div', 'tile ' + (cls || ''));
+    t.appendChild(el('div', 'n', n));
+    t.appendChild(el('div', 'k', k));
+    wrap.appendChild(t);
+  }
+  return wrap;
+}
+
+function bars(entries, { label = (x) => x, barCls = '' } = {}) {
+  const rows = el('div', 'rows');
+  if (!entries.length) { rows.appendChild(el('div', 'empty', 'No data in this window.')); return rows; }
+  const max = Math.max(...entries.map(e => e[1]));
+  for (const [k, v] of entries) {
+    const r = el('div', 'row');
+    r.appendChild(el('div', 'lbl', label(k)));
+    const track = el('div');
+    const bar = el('div', 'bar ' + barCls);
+    bar.style.width = Math.max(2, Math.round((v / max) * 100)) + '%';
+    track.appendChild(bar);
+    r.appendChild(track);
+    r.appendChild(el('div', 'val', String(v)));
+    rows.appendChild(r);
+  }
+  return rows;
+}
+
+function hourChart(byHour) {
+  const wrap = el('div');
+  const chart = el('div', 'hours');
+  const vals = Array.from({ length: 24 }, (_, h) => byHour[h] ?? 0);
+  const max = Math.max(1, ...vals);
+  vals.forEach((v, h) => {
+    const d = el('div');
+    d.style.height = Math.max(2, Math.round((v / max) * 70)) + 'px';
+    d.title = h + ':00 — ' + v;
+    chart.appendChild(d);
+  });
+  const labels = el('div', 'hlabels');
+  for (let h = 0; h < 24; h++) labels.appendChild(el('div', '', h % 6 === 0 ? String(h) : ''));
+  wrap.appendChild(chart); wrap.appendChild(labels);
+  return wrap;
+}
+
+function section(title, node, note) {
+  const s = el('section');
+  s.appendChild(el('h2', '', title));
+  s.appendChild(node);
+  if (note) s.appendChild(el('div', 'note', note));
+  return s;
+}
+
+async function load() {
+  const days = $('#days').value;
+  const d = await (await fetch('/api/insights?days=' + days)).json();
+  $('#win').textContent = 'last ' + d.window.days + ' days';
+  const app = $('#app');
+  app.textContent = '';
+
+  const m = d.messages, c = d.calls, t = d.triage;
+  const mins = (ms) => ms == null ? '—' : (ms / 60000) < 60
+    ? Math.round(ms / 60000) + 'm' : (ms / 3600000).toFixed(1) + 'h';
+
+  app.appendChild(section('Messages', tiles([
+    ['total', m.total], ['inbound', m.inbound], ['outbound', m.outbound],
+    ['threads', m.threads], ['with photos', m.withMedia],
+    ['median reply', mins(m.medianReplyMs)],
+    ['unanswered', m.unanswered, m.unanswered > 0 ? 'warn' : ''],
+  ])));
+
+  app.appendChild(section('Calls', tiles([
+    ['total', c.total], ['answered', c.answered],
+    ['missed', c.missed, c.missed > c.answered ? 'bad' : 'warn'],
+    ['recorded', c.recorded], ['minutes', c.totalMinutes],
+    ['median call', c.medianSecs != null ? c.medianSecs + 's' : '—'],
+  ]), c.missed > c.answered
+    ? 'More calls went unanswered than answered in this window. The phone system labels each call leg’s direction from that leg’s perspective, so some of these may be internal or forwarded legs rather than true missed calls — worth spot-checking before drawing conclusions.'
+    : null));
+
+  if (Object.keys(m.byHour).length || Object.keys(c.byHour).length) {
+    const s = el('section');
+    s.appendChild(el('h2', '', 'When messages arrive (hour of day)'));
+    s.appendChild(hourChart(m.byHour));
+    s.appendChild(el('h2', '', 'When calls happen'));
+    s.appendChild(hourChart(c.byHour));
+    app.appendChild(s);
+  }
+
+  // No triage section while triage is off (the server sends triage: null).
+  if (t) app.appendChild(section('Triage mix', (() => {
+    const wrap = el('div');
+    wrap.appendChild(tiles([
+      ['queued', t.queued], ['pending', t.pending],
+      ['sent', t.sent], ['dismissed', t.dismissed],
+      ['needs you', t.needsHumanRate == null ? '—' : Math.round(t.needsHumanRate * 100) + '%'],
+    ]));
+    const cats = Object.entries(t.byCategory).sort((a, b) => b[1] - a[1]);
+    if (cats.length) { wrap.appendChild(el('h2', '', 'By category')); wrap.appendChild(bars(cats)); }
+    const urg = Object.entries(t.byUrgency).sort((a, b) => b[1] - a[1]);
+    if (urg.length) { wrap.appendChild(el('h2', '', 'By urgency')); wrap.appendChild(bars(urg, { barCls: 'alt' })); }
+    return wrap;
+  })(), 'Counts cover every message the bot has triaged, not just the current window.'));
+
+  app.appendChild(section('Who contacts you most',
+    (() => {
+      const wrap = el('div');
+      wrap.appendChild(el('h2', '', 'By text'));
+      wrap.appendChild(bars(m.topContacts, { label: pretty }));
+      wrap.appendChild(el('h2', '', 'By call'));
+      wrap.appendChild(bars(c.topCallers, { label: pretty, barCls: 'alt' }));
+      return wrap;
+    })(),
+    'Caller rankings exclude internal extensions, so only outside numbers appear.'));
+
+  const dayEntries = Object.entries(m.byDay).sort((a, b) => a[0].localeCompare(b[0])).slice(-14);
+  if (dayEntries.length) app.appendChild(section('Messages per day', bars(dayEntries)));
+}
+
+$('#days').onchange = load;
+load();
+
+// ---- morning recap -------------------------------------------------------------------
+// Yesterday's texts, calls and voicemail, written each morning (lib/review.mjs).
+const dayLabel = (d) => new Date(d + 'T12:00').toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+const whoLabel = (who, number) => {
+  const p = pretty(number);
+  return who && who !== number && who !== p ? who + '  ' + p : p || who || 'Unknown';
+};
+let recapDay = null, poll = null;
+
+async function loadRecap(day = recapDay) {
+  let d;
+  try { d = await (await fetch('/api/review' + (day ? '?day=' + encodeURIComponent(day) : ''))).json(); }
+  catch { return; }
+  recapDay = d.review?.day ?? null;
+  renderRecap(d);
+  clearTimeout(poll);
+  if (d.state?.running) poll = setTimeout(() => loadRecap(recapDay), 3000);
+}
+
+async function runRecap(day) {
+  try {
+    const r = await fetch('/api/review/run', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(day ? { day } : {}) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || 'HTTP ' + r.status);
+    recapDay = j.day;
+  } catch (e) { $('#rstate').textContent = e.message; $('#rstate').className = 'rstate bad'; return; }
+  loadRecap(recapDay);
+}
+
+function renderRecap(d) {
+  const box = $('#recap');
+  box.textContent = '';
+  // The recap needs an AI platform; while it's off in Settings, Insights is
+  // just the numbers and this panel doesn't appear at all.
+  box.style.display = d.enabled === false ? 'none' : '';
+  if (d.enabled === false) return;
+  const head = el('div', 'rhead');
+  head.appendChild(el('h2', '', 'Morning recap'));
+  // A failure is only news while that day still has no recap.
+  const failed = d.state?.error && !d.state.running && !(d.review && d.review.day === d.state.day);
+  const state = el('span', 'rstate' + (failed ? ' bad' : ''));
+  state.id = 'rstate';
+  if (d.state?.running) state.textContent = d.state.step || 'Writing…';
+  else if (failed) state.textContent = 'Last run failed: ' + d.state.error;
+  head.appendChild(state);
+  if (d.days.length > 1) {
+    const sel = el('select');
+    for (const day of d.days) { const o = el('option', '', dayLabel(day)); o.value = day; sel.appendChild(o); }
+    sel.value = recapDay ?? d.days[0];
+    sel.onchange = () => loadRecap(sel.value);
+    head.appendChild(sel);
+  }
+  const run = el('button', '', d.review ? 'Rewrite' : 'Run now');
+  run.title = d.review ? 'Write this day’s recap again' : 'Write a recap of yesterday now';
+  run.disabled = !!d.state?.running;
+  run.onclick = () => runRecap(d.review?.day);
+  head.appendChild(run);
+  box.appendChild(head);
+
+  const r = d.review;
+  if (!r) {
+    box.appendChild(el('div', 'empty', d.enabled
+      ? 'No recap yet. One is written each morning at ' + new Date('2000-01-01T' + d.time).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) + ', or press Run now for yesterday.'
+      : 'Morning recaps are off. Turn them on in Settings → Daily recap, or press Run now for yesterday.'));
+    return;
+  }
+  if (r.empty) { box.appendChild(el('div', 'empty', 'Nothing came through on ' + dayLabel(r.day) + '.')); return; }
+
+  const x = r.recap;
+  box.appendChild(el('p', 'headline', x.headline));
+  box.appendChild(el('p', 'overview', x.overview));
+
+  if (x.follow_ups.length) {
+    box.appendChild(el('h2', '', 'Follow up (' + x.follow_ups.length + ')'));
+    const list = el('div', 'rlist');
+    for (const f of x.follow_ups) {
+      const row = el('div', 'fu');
+      row.appendChild(el('span', 'prio ' + f.priority, f.priority));
+      const who = el('div', 'who', whoLabel(f.who, f.number));
+      who.appendChild(el('span', 'src', f.source));
+      row.appendChild(who);
+      row.appendChild(el('div', 'what', f.what));
+      if (f.why) row.appendChild(el('div', 'why', f.why));
+      const acts = el('div', 'acts');
+      const digits10 = String(f.number || '').replace(/\D/g, '');
+      if (digits10.length >= 10) {
+        const call = el('button', '', 'Call');
+        call.onclick = () => window.switchboardDial ? window.switchboardDial(f.number) : (location.href = 'tel:' + digits10);
+        const text = el('a', '', 'Text');
+        text.href = '/messages?remote=' + encodeURIComponent(f.number);
+        acts.append(call, text);
+      }
+      row.appendChild(acts);
+      list.appendChild(row);
+    }
+    box.appendChild(list);
+  } else {
+    box.appendChild(el('div', 'empty', 'Nothing left open from ' + dayLabel(r.day) + '.'));
+    box.lastChild.style.marginBottom = '14px';
+  }
+
+  const plain = (title, items, cls = '') => {
+    if (!items.length) return;
+    box.appendChild(el('h2', '', title));
+    const ul = el('ul', 'plain ' + cls);
+    for (const i of items) {
+      const li = el('li');
+      li.appendChild(el('b', '', whoLabel(i.who, i.number) + ': '));
+      li.appendChild(document.createTextNode(i.what));
+      ul.appendChild(li);
+    }
+    box.appendChild(ul);
+  };
+  plain('Keep an eye on', x.watch, 'watch');
+  plain('Also noted', x.notable);
+
+  const s = r.stats, st = el('div', 'rstats');
+  const stat = (n, k) => { const e = el('span'); e.appendChild(el('b', '', String(n))); e.appendChild(document.createTextNode(' ' + k)); st.appendChild(e); };
+  stat(s.texts_in + s.texts_out, 'texts in ' + s.conversations + ' conversation' + (s.conversations === 1 ? '' : 's'));
+  stat(s.calls, 'calls');
+  if (s.missed) stat(s.missed, 'missed');
+  stat(s.voicemails, 'voicemail' + (s.voicemails === 1 ? '' : 's'));
+  if (s.transcribed) stat(s.transcribed, 'transcribed for this recap');
+  const names = { lmstudio: 'LM Studio', ollama: 'Ollama', anthropic: 'Claude', openai: 'OpenAI' };
+  st.appendChild(el('span', '', 'Written ' + new Date(r.generated_at).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' })
+    + ' · ' + (names[r.provider] || r.provider) + (r.model ? ' · ' + r.model : '')));
+  box.appendChild(st);
+  if (r.detail >= 2) box.appendChild(el('div', 'note', 'Condensed to fit the model’s context window, so some detail from long transcripts and threads was left out. Loading the model with a larger context length (LM Studio) gives a fuller recap.'));
+  if (r.errors?.length) box.appendChild(el('div', 'note', 'Skipped: ' + r.errors.join('; ')));
+}
+
+loadRecap();
+// A recap written while this page is open shows up without a reload.
+try {
+  const es = new EventSource('/api/events');
+  es.addEventListener('review', (e) => { try { recapDay = JSON.parse(e.data).day; } catch {} loadRecap(recapDay); });
+  es.addEventListener('review-error', () => loadRecap(recapDay));
+} catch {}
+</script>
+<script src="/dialpad.js"></script>

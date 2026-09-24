@@ -1,0 +1,97 @@
+/* Glass theme. Loaded by nav.js after each page's own <style>, so it restyles
+   every page without touching them. Tokens are overridden with a tripled
+   :root so they beat the pages' :root / :root[data-theme=…] blocks; the
+   surfaces below then pick up frosting from the translucent --panel. */
+
+:root:root:root{
+  --bg:rgba(255,255,255,.55); --panel:rgba(255,255,255,.52); --ink:#10131a; --muted:#5b6474;
+  --line:rgba(20,30,60,.10); --accent:#3b6cf6; --sel:rgba(59,108,246,.13);
+  --them:rgba(255,255,255,.75); --me:rgba(59,108,246,.16); --me-ink:#10131a;
+  --tile:rgba(255,255,255,.5); --key:rgba(255,255,255,.6);
+  --shadow:0 1px 0 rgba(255,255,255,.7) inset,0 8px 28px rgba(40,60,120,.10);
+  --edge:rgba(255,255,255,.75); --blur:22px; --sat:170%;
+  --wall:url(/assets/bg-light.webp); --wall-base:#eef1f7;
+  --hover:rgba(255,255,255,.55); --menu:#f5f7fc;
+}
+@media (prefers-color-scheme:dark){:root:root:root:not([data-theme=light]){
+  --bg:rgba(255,255,255,.045); --panel:rgba(18,22,32,.52); --ink:#e9ecf3; --muted:#949db0;
+  --line:rgba(255,255,255,.08); --accent:#6b95ff; --sel:rgba(107,149,255,.18);
+  --them:rgba(255,255,255,.08); --me:rgba(107,149,255,.30); --me-ink:#f2f5ff;
+  --tile:rgba(255,255,255,.05); --key:rgba(255,255,255,.06);
+  --shadow:0 1px 0 rgba(255,255,255,.06) inset,0 10px 30px rgba(0,0,0,.35);
+  --edge:rgba(255,255,255,.10);
+  --wall:url(/assets/bg-dark.webp); --wall-base:#0b0e14;
+  --hover:rgba(255,255,255,.06); --menu:#171c29;
+}}
+:root:root:root[data-theme=dark]{
+  --bg:rgba(255,255,255,.045); --panel:rgba(18,22,32,.52); --ink:#e9ecf3; --muted:#949db0;
+  --line:rgba(255,255,255,.08); --accent:#6b95ff; --sel:rgba(107,149,255,.18);
+  --them:rgba(255,255,255,.08); --me:rgba(107,149,255,.30); --me-ink:#f2f5ff;
+  --tile:rgba(255,255,255,.05); --key:rgba(255,255,255,.06);
+  --shadow:0 1px 0 rgba(255,255,255,.06) inset,0 10px 30px rgba(0,0,0,.35);
+  --edge:rgba(255,255,255,.10);
+  --wall:url(/assets/bg-dark.webp); --wall-base:#0b0e14;
+  --hover:rgba(255,255,255,.06); --menu:#171c29;
+}
+
+/* Wallpaper sits on <html> so pages that flex/scroll <body> still see it. */
+html{background:var(--wall-base) var(--wall) center/cover fixed no-repeat;min-height:100%}
+html body{background:transparent}
+
+/* Frosted surfaces. Page chrome plus every card-like block. */
+.sb, header, .card, .new, .list, .thead, .compose,
+section:not(.pane), .dp, .lbbar a, .lbbar button{
+  -webkit-backdrop-filter:blur(var(--blur)) saturate(var(--sat));
+  backdrop-filter:blur(var(--blur)) saturate(var(--sat));
+}
+.card, .new, section:not(.pane), .dp{
+  border-color:var(--edge) !important; box-shadow:var(--shadow);
+}
+.card, .new, section:not(.pane){border-radius:16px}
+header{border-bottom-color:var(--line)}
+
+/* Sidebar: floating glass rail with an inset margin. */
+.sb{background:var(--panel);border-right:1px solid var(--edge);box-shadow:var(--shadow)}
+.sb-item{border-radius:11px;transition:background .15s,color .15s}
+.sb-item:hover{background:var(--hover)}
+.sb-item.on{background:linear-gradient(135deg,rgba(107,149,255,.26),rgba(139,92,246,.18));
+  box-shadow:0 0 0 1px rgba(107,149,255,.25) inset}
+.sb-logo{background:linear-gradient(135deg,#5b8dff,#8b5cf6);box-shadow:0 4px 14px rgba(91,141,255,.45)}
+.sb-call{background:linear-gradient(135deg,#5b8dff,#7c5cf6);box-shadow:0 6px 18px rgba(91,141,255,.35);border-radius:12px}
+.sb-badge{background:linear-gradient(135deg,#5b8dff,#8b5cf6)}
+
+/* Controls: soft glass pills. */
+button, select, input, textarea{transition:border-color .15s,background-color .15s,box-shadow .15s}
+button:not(.primary):not(.sb-call):not(.sb-icon):not(.dp-call):not(.dp-btn){background:var(--bg)}
+button:not(.primary):not(.sb-call):not(.sb-icon):hover{background:var(--hover)}
+button.primary, .dp-btn{background:linear-gradient(135deg,#5b8dff,#7c5cf6) !important;border-color:transparent !important;
+  box-shadow:0 4px 14px rgba(91,141,255,.30)}
+input:focus, select:focus, textarea:focus{outline:none;border-color:var(--accent);
+  box-shadow:0 0 0 3px rgba(107,149,255,.22)}
+/* The opened list of a <select> is drawn by the OS and can't be translucent:
+   it falls back to white under a see-through select, with the light text on
+   top. Give the options a solid colour from the theme. */
+select option, select optgroup{background-color:var(--menu);color:var(--ink)}
+select option:disabled{color:var(--muted)}
+select option:checked{background-color:var(--accent);color:#fff}
+
+/* Lists and threads. */
+.conv{transition:background .15s}
+.conv:hover{background:var(--hover)}
+.me .bub{box-shadow:0 2px 10px rgba(91,141,255,.18)}
+.bub{-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px)}
+.badge{background:linear-gradient(135deg,#5b8dff,#8b5cf6)}
+
+/* Overlays: blurred scrims instead of flat black. */
+.dp-scrim{background:rgba(5,8,14,.35);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
+.dp{background:var(--panel) !important;border-radius:20px}
+
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-thumb{background:var(--line);border-radius:10px;border:3px solid transparent;background-clip:padding-box}
+::-webkit-scrollbar-thumb:hover{background-color:var(--muted)}
+::-webkit-scrollbar-track{background:transparent}
+
+@media (prefers-reduced-transparency:reduce){
+  :root:root:root{--panel:rgba(245,247,251,.97)}
+  :root:root:root[data-theme=dark]{--panel:rgba(18,22,32,.97)}
+}

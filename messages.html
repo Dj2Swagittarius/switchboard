@@ -1,0 +1,751 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Messages</title>
+<style>
+:root{
+  --bg:#f6f7f9; --panel:#fff; --ink:#14171c; --muted:#6b7480; --line:#e3e6ea;
+  --accent:#2f6df6; --urgent:#d93025; --high:#e8710a; --ok:#1a7f37;
+  --them:#eceef1; --me:#dce8ff; --me-ink:#14171c; --sel:#e8eefc;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){
+  --bg:#0f1216; --panel:#171b21; --ink:#e6e9ee; --muted:#8b95a1; --line:#252b33;
+  --accent:#5b8dff; --urgent:#ff6b5e; --high:#ffa04d; --ok:#4ade80;
+  --them:#232932; --me:#2a4577; --me-ink:#eef3ff; --sel:#1f2a3d;
+}}
+:root[data-theme=dark]{
+  --bg:#0f1216; --panel:#171b21; --ink:#e6e9ee; --muted:#8b95a1; --line:#252b33;
+  --accent:#5b8dff; --urgent:#ff6b5e; --high:#ffa04d; --ok:#4ade80;
+  --them:#232932; --me:#2a4577; --me-ink:#eef3ff; --sel:#1f2a3d;
+}
+:root{color-scheme:light dark}
+:root[data-theme=light]{color-scheme:light}
+:root[data-theme=dark]{color-scheme:dark}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--ink);display:flex;flex-direction:column;
+  font:14px/1.45 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+header{background:var(--panel);border-bottom:1px solid var(--line);flex:none}
+.bar{display:flex;align-items:center;gap:10px;padding:10px 16px;flex-wrap:wrap}
+h1{font-size:15px;margin:0;font-weight:650}
+.grow{flex:1}
+.meta{color:var(--muted);font-size:12px}
+a.navlink{color:var(--muted);text-decoration:none;font-size:13px;padding:6px 10px;
+  border:1px solid var(--line);border-radius:7px}
+a.navlink:hover{color:var(--ink);border-color:var(--accent)}
+button,select,input,textarea{font:inherit;color:var(--ink)}
+button{border:1px solid var(--line);background:var(--panel);padding:6px 11px;border-radius:7px;cursor:pointer}
+button:hover{border-color:var(--accent)}
+button:disabled{opacity:.5;cursor:not-allowed}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+select,input{border:1px solid var(--line);background:var(--bg);padding:6px 9px;border-radius:7px}
+
+.wrap{flex:1;display:flex;min-height:0}
+.list{width:340px;flex:none;border-right:1px solid var(--line);display:flex;flex-direction:column;
+  background:var(--panel);min-height:0}
+.listtop{padding:10px;display:flex;gap:8px;border-bottom:1px solid var(--line)}
+.listtop input{flex:1;min-width:0}
+.convs{flex:1;overflow:auto}
+.conv{display:flex;gap:10px;padding:10px 12px;cursor:pointer;border-bottom:1px solid var(--line);align-items:center}
+.conv:hover{background:var(--bg)}
+.conv.sel{background:var(--sel)}
+.av{width:38px;height:38px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;
+  background:var(--them);color:var(--muted);font-weight:650;font-size:13px;overflow:hidden}
+.av svg{width:22px;height:22px;fill:currentColor;opacity:.8}
+.cbody{flex:1;min-width:0}
+.crow{display:flex;gap:8px;align-items:baseline}
+.cname{font-weight:650;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  font-variant-numeric:tabular-nums}
+.ctime{font-size:11.5px;color:var(--muted);flex:none}
+.cprev{font-size:13px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0}
+.conv.unread .cname,.conv.unread .cprev{color:var(--ink)}
+.badge{background:var(--accent);color:#fff;border-radius:999px;font-size:11px;font-weight:700;
+  min-width:19px;height:19px;display:inline-flex;align-items:center;justify-content:center;padding:0 6px;flex:none}
+.ltag{font-size:10.5px;color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:0 6px;flex:none}
+
+.pane{flex:1;display:flex;flex-direction:column;min-width:0;min-height:0}
+.thead{display:flex;align-items:center;gap:10px;padding:10px 16px;border-bottom:1px solid var(--line);
+  background:var(--panel);flex:none}
+.chip{background:var(--them);border-radius:999px;padding:4px 12px;font-weight:600;font-variant-numeric:tabular-nums}
+.back{display:none}
+.msgs{flex:1;overflow:auto;padding:14px 18px;display:flex;flex-direction:column;gap:4px}
+.day{align-self:center;font-size:11.5px;color:var(--muted);margin:12px 0 6px}
+.m{max-width:min(70%,560px);display:flex;flex-direction:column;gap:3px}
+.m.them{align-self:flex-start}
+.m.me{align-self:flex-end;align-items:flex-end}
+.bub{padding:9px 13px;border-radius:16px;white-space:pre-wrap;word-break:break-word}
+.them .bub{background:var(--them);border-bottom-left-radius:5px}
+.me .bub{background:var(--me);color:var(--me-ink);border-bottom-right-radius:5px}
+.m img{max-width:260px;max-height:260px;border-radius:12px;cursor:zoom-in;display:block;
+  background:var(--them);min-width:80px;min-height:60px;object-fit:cover}
+.m video{width:260px;aspect-ratio:4/3;border-radius:12px;display:block;background:#000}
+.m audio{width:260px;display:block}
+.m .mnote{font-size:11.5px;color:var(--muted);padding:2px 4px;max-width:260px}
+.mt{font-size:11px;color:var(--muted);padding:0 4px}
+.m.failed .bub{outline:1px solid var(--urgent)}
+.m.failed .mt{color:var(--urgent)}
+.empty{margin:auto;text-align:center;color:var(--muted);padding:40px}
+
+.compose{border-top:1px solid var(--line);background:var(--panel);padding:10px 14px;flex:none}
+.to{display:flex;gap:8px;margin-bottom:8px;align-items:center}
+.to input{flex:1}
+.crow2{display:flex;gap:10px;align-items:flex-end}
+textarea{flex:1;resize:none;min-height:42px;max-height:180px;padding:10px 12px;border-radius:10px;
+  border:1px solid var(--line);background:var(--bg);line-height:1.4}
+textarea:focus{outline:2px solid var(--accent);outline-offset:-1px;border-color:transparent}
+textarea.locked{opacity:.55;cursor:progress}
+.tool{flex:none;width:42px;height:42px;padding:0;font-size:20px;line-height:1;border-radius:10px;
+  font-family:"Segoe UI Emoji","Apple Color Emoji","Noto Color Emoji",sans-serif}
+.tool[aria-expanded=true]{border-color:var(--accent)}
+.atts{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px}
+.atts:empty{display:none}
+.att{position:relative;display:flex;align-items:center;gap:9px;max-width:270px;padding:5px 32px 5px 5px;
+  border:1px solid var(--line);border-radius:10px;background:var(--bg)}
+.att .pv{width:44px;height:44px;flex:none;border-radius:7px;object-fit:cover;background:var(--panel);
+  display:flex;align-items:center;justify-content:center;font-size:22px}
+.att .an{min-width:0;display:flex;flex-direction:column}
+.att .an b{font-weight:600;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.att .an span{font-size:11.5px;color:var(--muted)}
+.att .x{position:absolute;top:4px;right:4px;width:22px;height:22px;padding:0;border-radius:50%;font-size:14px;line-height:1}
+.att.busy{opacity:.7}
+.compose.drop{outline:2px dashed var(--accent);outline-offset:-4px}
+.compose.busy .att .x,.compose.busy .tool{pointer-events:none;opacity:.45}
+.cfoot{display:flex;gap:10px;align-items:center;margin-top:6px}
+.count{font-size:11.5px;color:var(--muted);font-variant-numeric:tabular-nums}
+.count.over{color:var(--urgent)}
+.err{color:var(--urgent);font-size:12.5px}
+
+.lb{position:fixed;inset:0;background:rgba(0,0,0,.82);display:none;align-items:center;justify-content:center;z-index:900}
+.lb.open{display:flex}
+.lb img{max-width:94vw;max-height:88vh;border-radius:6px;image-orientation:from-image}
+.lbbar{position:fixed;top:12px;right:14px;display:flex;gap:8px}
+.lbbar a,.lbbar button{background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);color:#fff;
+  text-decoration:none;padding:6px 12px;border-radius:7px;font-size:13px;cursor:pointer}
+
+@media(max-width:760px){
+  .list{width:100%;border-right:0}
+  .wrap.reading .list{display:none}
+  .wrap:not(.reading) .pane{display:none}
+  .back{display:inline-block}
+}
+</style>
+
+<script src="/nav.js"></script>
+<script src="/emoji.js" defer></script>
+<header>
+  <div class="bar">
+    <h1>Messages</h1>
+    <select id="line" title="Which line"></select>
+    <span class="grow"></span>
+    <span class="meta" id="stat"></span>
+  </div>
+</header>
+
+<div class="wrap" id="wrap">
+  <aside class="list">
+    <div class="listtop">
+      <input id="q" type="search" placeholder="Search">
+      <button class="primary" id="new">+ Message</button>
+    </div>
+    <div class="convs" id="convs"><div class="empty">Loading&hellip;</div></div>
+  </aside>
+  <section class="pane" id="pane"><div class="empty">Pick a conversation.</div></section>
+</div>
+
+<div class="lb" id="lb"><div class="lbbar"><a id="lbdl" href="#" download>Download</a><button id="lbx">Close</button></div><img alt=""></div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const el = (tag, cls, text) => {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text != null) e.textContent = text;
+  return e;
+};
+const digits = (s) => String(s || '').replace(/\D/g, '');
+const pretty = (n) => {
+  const d = digits(n).slice(-10);
+  return d.length === 10 ? '(' + d.slice(0,3) + ') ' + d.slice(3,6) + '-' + d.slice(6) : (n || '');
+};
+const initials = (name) => {
+  const w = String(name || '').replace(/[^A-Za-z ]/g, ' ').trim().split(/\s+/).filter(Boolean);
+  return w.length ? (w[0][0] + (w[1] ? w[1][0] : '')).toUpperCase() : '';
+};
+const MAX = 2048;
+
+const saved = localStorage.getItem('theme');
+if (saved) document.documentElement.dataset.theme = saved;
+
+function when(ms) {
+  if (!ms) return '';
+  const d = new Date(ms), now = new Date();
+  const days = Math.floor((new Date(now.toDateString()) - new Date(d.toDateString())) / 864e5);
+  if (days === 0) return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  if (days === 1) return 'Yesterday';
+  if (days < 7) return d.toLocaleDateString([], { weekday: 'short' });
+  return d.toLocaleDateString([], { month: 'short', day: '2-digit' });
+}
+function dayLabel(ms) {
+  const d = new Date(ms), now = new Date();
+  const days = Math.floor((new Date(now.toDateString()) - new Date(d.toDateString())) / 864e5);
+  if (days === 0) return 'Today';
+  if (days === 1) return 'Yesterday';
+  return d.toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' });
+}
+
+let lines = [];            // [{number, label, active}]
+let convs = [];
+let open = null;           // {line, remote, name} | {compose:true}
+let openSig = '';
+let sending = false;
+
+// ---- lines ------------------------------------------------------------------
+async function loadLines() {
+  const s = await (await fetch('/api/state')).json();
+  lines = (s.lines || []).filter(l => l.active !== false);
+  const sel = $('#line');
+  sel.textContent = '';
+  const all = el('option', '', 'All lines'); all.value = ''; sel.appendChild(all);
+  for (const l of lines) {
+    const o = el('option', '', 'My messages ' + pretty(l.number));
+    o.value = l.number;
+    sel.appendChild(o);
+  }
+  const want = localStorage.getItem('msgLine') || '';
+  sel.value = lines.some(l => l.number === want) ? want : '';
+  sel.onchange = () => { try { localStorage.setItem('msgLine', sel.value); } catch {} loadConvs({ cachedFirst: true }); };
+}
+
+// ---- conversation list -------------------------------------------------------
+// cachedFirst: draw the saved list at once (instant), then fetch the live one.
+async function loadConvs({ cachedFirst = false } = {}) {
+  const line = $('#line').value;
+  const url = '/api/conversations?' + (line ? 'line=' + encodeURIComponent(line) + '&' : '');
+  if (cachedFirst) {
+    try {
+      const c = await (await fetch(url + 'cached=1')).json();
+      if (Array.isArray(c.conversations) && $('#line').value === line) {
+        convs = c.conversations;
+        renderConvs();
+        $('#stat').textContent = 'Checking for new messages…';
+      }
+    } catch {}
+  }
+  try {
+    const d = await (await fetch(url)).json();
+    if (d.error) throw new Error(d.error);
+    if ($('#line').value !== line) return;       // switched lines meanwhile
+    convs = d.conversations || [];
+    $('#stat').textContent = '';
+  } catch (e) { $('#stat').textContent = 'could not load: ' + e.message; }
+  renderConvs();
+}
+
+function renderConvs() {
+  const box = $('#convs');
+  const q = $('#q').value.trim().toLowerCase();
+  const qd = digits(q);
+  const list = convs.filter(c => !q ||
+    (c.name || '').toLowerCase().includes(q) ||
+    (qd && digits(c.remote).includes(qd)) ||
+    (c.last.text || '').toLowerCase().includes(q));
+  box.textContent = '';
+  if (!list.length) { box.appendChild(el('div', 'empty', q ? 'No matches.' : 'No conversations.')); return; }
+  const multi = !$('#line').value && lines.length > 1;
+
+  for (const c of list) {
+    const row = el('div', 'conv' + (c.unread ? ' unread' : '') +
+      (open && open.remote === c.remote && open.line === c.line ? ' sel' : ''));
+    const av = el('div', 'av', initials(c.name) || null);
+    if (!av.textContent) {
+      const ns = 'http://www.w3.org/2000/svg';
+      const svg = document.createElementNS(ns, 'svg'); svg.setAttribute('viewBox', '0 0 24 24');
+      const p = document.createElementNS(ns, 'path');
+      p.setAttribute('d', 'M12 12a4.5 4.5 0 1 0 0-9 4.5 4.5 0 0 0 0 9Zm0 2c-4.4 0-8 2.3-8 5.2V21h16v-1.8c0-2.9-3.6-5.2-8-5.2Z');
+      svg.appendChild(p); av.appendChild(svg);
+    }
+    const body = el('div', 'cbody');
+    const r1 = el('div', 'crow');
+    r1.appendChild(el('span', 'cname', c.name || pretty(c.remote)));
+    r1.appendChild(el('span', 'ctime', when(c.lastAt)));
+    const r2 = el('div', 'crow');
+    const prev = c.last.text ? (c.last.inbound ? '' : 'You: ') + c.last.text.replace(/\s+/g, ' ')
+      : c.last.media ? (c.last.inbound ? 'Photo' : 'You sent a photo') : '';
+    r2.appendChild(el('span', 'cprev', prev));
+    if (multi) r2.appendChild(el('span', 'ltag', pretty(c.line).slice(-8)));
+    if (c.unread) r2.appendChild(el('span', 'badge', String(c.unread)));
+    body.append(r1, r2);
+    row.append(av, body);
+    row.onclick = () => openConv(c);
+    box.appendChild(row);
+  }
+}
+
+// ---- attachments ----------------------------------------------------------------
+// The platform's picture-message limits: 10 files, each at most 2,000,000 bytes,
+// of these types (type and extension must both match). Pictures that are too
+// big, or in a format phones can't open, become a JPEG small enough to fit;
+// other files go as they are or not at all. The server checks all of it again.
+const MMS_MAX = 2e6, MMS_FILES = 10;
+const MMS_TYPES = {
+  'image/jpeg': ['.jpg', '.jpeg'], 'image/png': ['.png'], 'image/gif': ['.gif'],
+  'video/mp4': ['.mp4', '.m4v'], 'audio/wav': ['.wav'], 'audio/ogg': ['.oga'], 'application/pdf': ['.pdf'],
+};
+const ALIAS = { 'image/jpg': 'image/jpeg', 'image/pjpeg': 'image/jpeg', 'audio/x-wav': 'audio/wav', 'audio/wave': 'audio/wav',
+  'audio/vnd.wave': 'audio/wav', 'video/x-m4v': 'video/mp4' };
+const BY_EXT = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.gif': 'image/gif', '.mp4': 'video/mp4',
+  '.m4v': 'video/mp4', '.wav': 'audio/wav', '.oga': 'audio/ogg', '.pdf': 'application/pdf' };
+const ACCEPT = 'image/*,video/mp4,.m4v,application/pdf,audio/wav,.wav,.oga';
+const EDGE = 2048;          // longest side of a converted picture
+const ICON = { image: '🖼️', video: '🎬', audio: '🎵', application: '📄' };
+const extOf = (n) => { const i = n.lastIndexOf('.'); return i > 0 ? n.slice(i).toLowerCase() : ''; };
+const stem = (n) => { const i = n.lastIndexOf('.'); return (i > 0 ? n.slice(0, i) : n) || 'picture'; };
+const human = (n) => n >= 1e6 ? (n / 1e6).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1e3)) + ' KB';
+let dropInto = null;        // the on-screen composer's addFiles
+
+// -> {name, type, blob, size, thumb (PNG data URL or null), kind, note}, or throws a message for the user.
+async function prepare(file) {
+  const ext = extOf(file.name);
+  const raw = String(file.type || '').toLowerCase();
+  const type = ALIAS[raw] || raw || BY_EXT[ext] || '';
+  if (type.startsWith('image/')) return prepareImage(file, type, ext);
+  if (!MMS_TYPES[type]?.includes(ext)) throw new Error(`“${file.name}” can’t be sent by text. Pictures, MP4 videos, PDFs and WAV audio can.`);
+  if (!file.size) throw new Error(`“${file.name}” is empty.`);
+  if (file.size > MMS_MAX) throw new Error(`“${file.name}” is ${human(file.size)}; the limit is 2 MB.` +
+    (type === 'video/mp4' ? ' Trim or compress the video first.' : ''));
+  const thumb = type === 'video/mp4' ? await videoThumb(file) : null;
+  return { name: file.name, type, blob: file, size: file.size, thumb, kind: type.split('/')[0], note: '' };
+}
+
+async function prepareImage(file, type, ext) {
+  const asIs = ['image/jpeg', 'image/png', 'image/gif'].includes(type) && MMS_TYPES[type].includes(ext)
+    && file.size > 0 && file.size <= MMS_MAX;
+  let bmp = null;
+  try { bmp = await createImageBitmap(file, { imageOrientation: 'from-image' }); } catch {}
+  if (!bmp && !asIs) throw new Error(`“${file.name}” can’t be opened here` +
+    (/heic|heif/.test(type + ext) ? ' (it’s an iPhone HEIC photo)' : '') + '. Save it as a JPEG and try again.');
+  try {
+    if (asIs) return { name: file.name, type, blob: file, size: file.size, thumb: bmp && thumbOf(bmp), kind: 'image', note: '' };
+    const blob = await fitJpeg(bmp);
+    const note = (file.size > MMS_MAX ? 'shrunk from ' + human(file.size) : 'converted to JPEG') +
+      (type === 'image/gif' ? ', as a still picture' : '');
+    return { name: stem(file.name) + '.jpg', type: 'image/jpeg', blob, size: blob.size, thumb: thumbOf(bmp), kind: 'image', note };
+  } finally { bmp?.close(); }
+}
+
+// A JPEG of the picture at most EDGE px on its longest side and at most MMS_MAX
+// bytes: lower quality first, then smaller.
+async function fitJpeg(bmp) {
+  let scale = Math.min(1, EDGE / Math.max(bmp.width, bmp.height)), q = 0.88;
+  for (let i = 0; i < 14; i++) {
+    const c = document.createElement('canvas');
+    c.width = Math.max(1, Math.round(bmp.width * scale)); c.height = Math.max(1, Math.round(bmp.height * scale));
+    const g = c.getContext('2d');
+    g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height);     // JPEG has no transparency
+    g.imageSmoothingQuality = 'high';
+    g.drawImage(bmp, 0, 0, c.width, c.height);
+    const blob = await new Promise((res) => c.toBlob(res, 'image/jpeg', q));
+    if (!blob) break;
+    if (blob.size <= MMS_MAX) return blob;
+    if (q > 0.7) q -= 0.08; else scale *= Math.min(0.9, Math.sqrt(MMS_MAX / blob.size));
+  }
+  throw new Error('This picture couldn’t be made small enough to send.');
+}
+
+// The preview uploaded with each picture or video, made the way the platform's
+// own app makes it: a PNG, longest side scaled to 256 px, or halved if smaller.
+function thumbOf(src, w = src.width, h = src.height) {
+  const long = Math.max(w, h), s = long > 256 ? 256 / long : 0.5;
+  const c = document.createElement('canvas');
+  c.width = Math.max(1, Math.round(w * s)); c.height = Math.max(1, Math.round(h * s));
+  c.getContext('2d').drawImage(src, 0, 0, c.width, c.height);
+  return c.toDataURL('image/png');
+}
+
+// A frame from just after the start of a video, or null if it can't be played here.
+function videoThumb(file) {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file);
+    const v = document.createElement('video');
+    let done = false;
+    const finish = (t) => {
+      if (done) return; done = true; clearTimeout(timer);
+      v.removeAttribute('src'); v.load(); URL.revokeObjectURL(url); resolve(t);
+    };
+    const timer = setTimeout(() => finish(null), 6000);
+    v.muted = true; v.preload = 'auto';
+    v.onloadeddata = () => { v.currentTime = Math.min(0.1, (v.duration || 1) / 2); };
+    v.onseeked = () => { try { finish(v.videoWidth ? thumbOf(v, v.videoWidth, v.videoHeight) : null); } catch { finish(null); } };
+    v.onerror = () => finish(null);
+    v.src = url;
+  });
+}
+
+const base64 = (blob) => new Promise((resolve, reject) => {
+  const fr = new FileReader();
+  fr.onload = () => { const s = String(fr.result); resolve(s.slice(s.indexOf(',') + 1)); };
+  fr.onerror = () => reject(new Error('Could not read the file.'));
+  fr.readAsDataURL(blob);
+});
+
+// Files dropped anywhere on the page go to the composer on screen. Never let
+// the window try to open a dropped file.
+const hasFiles = (e) => [...(e.dataTransfer?.types || [])].includes('Files');
+document.addEventListener('dragover', (e) => {
+  if (!hasFiles(e)) return;
+  e.preventDefault();
+  const c = document.querySelector('.compose');
+  e.dataTransfer.dropEffect = c ? 'copy' : 'none';
+  c?.classList.add('drop');
+});
+document.addEventListener('dragleave', (e) => {
+  if (!e.relatedTarget) document.querySelector('.compose')?.classList.remove('drop');
+});
+document.addEventListener('drop', (e) => {
+  if (!hasFiles(e)) return;
+  e.preventDefault();
+  document.querySelector('.compose')?.classList.remove('drop');
+  if (document.querySelector('.compose') && e.dataTransfer.files.length) dropInto?.([...e.dataTransfer.files]);
+});
+
+// ---- thread -------------------------------------------------------------------
+function composer({ to = null } = {}) {
+  const wrap = el('div', 'compose');
+  let toInput = null, lineSel = null;
+  if (to !== null) {
+    const row = el('div', 'to');
+    row.appendChild(el('span', 'meta', 'To'));
+    toInput = el('input'); toInput.placeholder = 'Phone number'; toInput.inputMode = 'tel';
+    row.appendChild(toInput);
+    row.appendChild(el('span', 'meta', 'from'));
+    lineSel = el('select');
+    for (const l of lines) { const o = el('option', '', pretty(l.number)); o.value = l.number; lineSel.appendChild(o); }
+    const cur = $('#line').value; if (cur) lineSel.value = cur;
+    row.appendChild(lineSel);
+    wrap.appendChild(row);
+  }
+  const r = el('div', 'crow2');
+  const ta = el('textarea'); ta.placeholder = 'Message…'; ta.rows = 1;
+  const send = el('button', 'primary', 'Send');
+  const emo = el('button', 'tool', '🙂');
+  emo.type = 'button'; emo.title = 'Emoji'; emo.setAttribute('aria-label', 'Emoji'); emo.setAttribute('aria-haspopup', 'dialog');
+  // Insert at the cursor (replacing any selection); the picker stays open for more.
+  emo.onclick = () => window.switchboardEmoji?.open(emo, (c) => {
+    if (ta.readOnly) return;
+    const s = ta.selectionStart ?? ta.value.length, e = ta.selectionEnd ?? s;
+    ta.setRangeText(c, s, e, 'end');
+    ta.oninput();
+  });
+  const clip = el('button', 'tool', '📎');
+  clip.type = 'button'; clip.title = 'Attach pictures or files'; clip.setAttribute('aria-label', 'Attach pictures or files');
+  const pick = el('input'); pick.type = 'file'; pick.multiple = true; pick.hidden = true; pick.accept = ACCEPT;
+  clip.onclick = () => pick.click();
+  pick.onchange = () => { addFiles([...pick.files]); pick.value = ''; };
+  r.append(emo, clip, ta, send);
+  const tray = el('div', 'atts');
+  const foot = el('div', 'cfoot');
+  const err = el('span', 'err');
+  const count = el('span', 'count', '0/' + MAX);
+  foot.append(el('span', 'meta', 'Enter to send · Shift+Enter for a new line'), el('span', 'grow'), err, count);
+  wrap.append(tray, r, foot, pick);
+
+  // Attachments: prepared (checked, converted, previewed) as they're added,
+  // uploaded when the message is sent. An upload that succeeded is kept for a
+  // retry after a failed send, as long as the line is the same.
+  const atts = [];
+  async function addFiles(files) {
+    if (sending || !wrap.isConnected) return;
+    err.textContent = '';
+    for (const f of files) {
+      if (atts.length >= MMS_FILES) { err.textContent = `At most ${MMS_FILES} attachments per message.`; break; }
+      const a = { name: f.name || 'file', size: f.size, busy: true };
+      atts.push(a); drawAtts();
+      try { Object.assign(a, await prepare(f), { busy: false }); }
+      catch (e) { const i = atts.indexOf(a); if (i >= 0) atts.splice(i, 1); err.textContent = e.message; }
+      drawAtts();
+    }
+  }
+  function drawAtts() {
+    tray.textContent = '';
+    for (const a of atts) {
+      const c = el('div', 'att' + (a.busy ? ' busy' : ''));
+      let pv;
+      if (a.thumb) { pv = el('img', 'pv'); pv.src = a.thumb; pv.alt = ''; }
+      else pv = el('div', 'pv', a.busy ? '⏳' : ICON[a.kind] || '📄');
+      const an = el('div', 'an');
+      const nm = el('b', '', a.name); nm.title = a.name;
+      an.append(nm, el('span', '', a.busy ? 'Preparing…' : human(a.size) + (a.note ? ' · ' + a.note : '')));
+      const x = el('button', 'x', '×');
+      x.type = 'button'; x.title = 'Remove'; x.setAttribute('aria-label', 'Remove ' + a.name);
+      x.onclick = () => { if (sending) return; const i = atts.indexOf(a); if (i >= 0) atts.splice(i, 1); drawAtts(); };
+      c.append(pv, an, x);
+      tray.appendChild(c);
+    }
+  }
+  async function upload(a, line) {
+    const r = await (await fetch('/api/messages/upload', { method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ line, name: a.name, type: a.type, data: await base64(a.blob), thumb: a.thumb || null }) })).json();
+    if (r.error) throw new Error(r.error);
+    return r.id;
+  }
+  dropInto = addFiles;
+  // A pasted picture (a screenshot, an image copied from a page) is attached;
+  // anything with text in it pastes as text.
+  ta.addEventListener('paste', (e) => {
+    const cd = e.clipboardData;
+    if (!cd?.files?.length || [...cd.types].includes('text/plain')) return;
+    e.preventDefault();
+    addFiles([...cd.files]);
+  });
+
+  const grow = () => { ta.style.height = 'auto'; ta.style.height = Math.min(180, ta.scrollHeight) + 'px'; };
+  ta.oninput = () => {
+    grow();
+    count.textContent = ta.value.length + '/' + MAX;
+    count.classList.toggle('over', ta.value.length > MAX);
+    err.textContent = '';
+  };
+
+  async function doSend() {
+    if (sending) return;
+    const text = ta.value.trim();
+    const target = toInput ? toInput.value : open.remote;
+    const line = lineSel ? lineSel.value : open.line;
+    if (!text && !atts.length) return;
+    if (text.length > MAX) { err.textContent = 'Too long.'; return; }
+    if (toInput && digits(target).length < 10) { err.textContent = 'Enter a full phone number.'; return; }
+    if (atts.some(a => a.busy)) { err.textContent = 'Still preparing an attachment…'; return; }
+    sending = true; send.disabled = true; send.textContent = 'Sending…'; err.textContent = '';
+    // Lock the composer until the send is confirmed and the box has cleared,
+    // so nothing typed in the meantime gets wiped by that clear.
+    const lock = (on) => {
+      ta.readOnly = on;
+      ta.classList.toggle('locked', on);
+      if (toInput) toInput.readOnly = on;
+      if (lineSel) lineSel.disabled = on;
+      wrap.classList.toggle('busy', on);
+      emo.disabled = clip.disabled = on;
+    };
+    lock(true);
+    try {
+      const media = [];
+      for (const [i, a] of atts.entries()) {
+        if (!(a.id && a.idLine === line)) {
+          send.textContent = atts.length > 1 ? `Uploading ${i + 1}/${atts.length}…` : 'Uploading…';
+          a.id = await upload(a, line); a.idLine = line;
+        }
+        media.push(a.id);
+      }
+      send.textContent = 'Sending…';
+      const r = await (await fetch('/api/messages/send', { method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ line, to: target, text, media }) })).json();
+      if (r.error) throw new Error(r.error);
+      ta.value = ''; ta.oninput();
+      atts.length = 0; drawAtts();
+      if (toInput) {
+        await loadConvs();
+        const d = digits(target).slice(-10);
+        const c = convs.find(c => c.line === line && digits(c.remote).endsWith(d));
+        await openConv(c || { line, remote: '+1' + d, name: '' });
+      } else {
+        await loadThread(true);
+        loadConvs();
+      }
+    } catch (e) {
+      err.textContent = 'Not sent: ' + e.message;
+    } finally {
+      sending = false; send.disabled = false; send.textContent = 'Send';
+      lock(false);                       // on failure the text and attachments are still there to retry
+      if (ta.isConnected) ta.focus();
+    }
+  }
+  send.onclick = doSend;
+  ta.onkeydown = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); doSend(); } };
+  setTimeout(() => (toInput || ta).focus(), 0);
+  return wrap;
+}
+
+function header(title, sub) {
+  const h = el('div', 'thead');
+  const back = el('button', 'back', '←');
+  back.onclick = () => { $('#wrap').classList.remove('reading'); open = null; renderConvs(); };
+  h.appendChild(back);
+  h.appendChild(el('span', 'chip', title));
+  if (sub) h.appendChild(el('span', 'meta', sub));
+  h.appendChild(el('span', 'grow'));
+  return h;
+}
+
+async function openConv(c) {
+  open = { line: c.line, remote: c.remote, name: c.name };
+  openSig = '';
+  $('#wrap').classList.add('reading');
+  renderConvs();
+
+  const pane = $('#pane');
+  pane.textContent = '';
+  const multi = lines.length > 1;
+  const h = header(c.name || pretty(c.remote), (c.name ? pretty(c.remote) : '') +
+    (multi ? (c.name ? ' · ' : '') + 'via ' + pretty(c.line) : ''));
+  const q = 'line=' + encodeURIComponent(c.line) + '&remote=' + encodeURIComponent(c.remote);
+  const photosBtn = el('a', '', 'Photos'); photosBtn.id = 'thphotos';
+  photosBtn.href = '/photos?' + q;
+  const zipBtn = el('a', '', 'Save all photos'); zipBtn.id = 'thzip';
+  zipBtn.href = '/api/photos/zip?' + q; zipBtn.setAttribute('download', '');
+  for (const b of [photosBtn, zipBtn]) {
+    b.style.cssText = 'display:none;color:var(--muted);text-decoration:none;font-size:13px;padding:6px 10px;border:1px solid var(--line);border-radius:7px';
+    h.appendChild(b);
+  }
+  const callBtn = el('button', '', 'Call');
+  callBtn.title = 'Call';
+  callBtn.onclick = () => window.switchboardDial ? window.switchboardDial(c.remote) : (location.href = 'tel:' + c.remote);
+  h.appendChild(callBtn);
+  pane.appendChild(h);
+
+  const msgs = el('div', 'msgs'); msgs.id = 'msgs';
+  msgs.appendChild(el('div', 'empty', 'Loading…'));
+  pane.appendChild(msgs);
+  pane.appendChild(composer());
+  await loadThread(true, { cachedFirst: true });
+}
+
+function startCompose() {
+  open = { compose: true };
+  $('#wrap').classList.add('reading');
+  renderConvs();
+  const pane = $('#pane');
+  pane.textContent = '';
+  pane.appendChild(header('New message', ''));
+  const msgs = el('div', 'msgs');
+  msgs.appendChild(el('div', 'empty', 'Type a number and your message.'));
+  pane.appendChild(msgs);
+  pane.appendChild(composer({ to: '' }));
+}
+
+// cachedFirst: draw the saved thread at once, then fetch what's new. The server
+// only asks the platform for the newest messages once a thread is saved.
+async function loadThread(scroll, { cachedFirst = false } = {}) {
+  if (!open || open.compose) return;
+  const want = open;
+  const url = '/api/conversation?line=' + encodeURIComponent(want.line) + '&remote=' + encodeURIComponent(want.remote);
+  if (cachedFirst) {
+    try {
+      const c = await (await fetch(url + '&cached=1')).json();
+      if (open === want && Array.isArray(c.messages)) renderThread(c.messages, want, scroll);
+    } catch {}
+  }
+  let d;
+  try { d = await (await fetch(url)).json(); } catch { return; }
+  if (open !== want) return;                    // switched conversations meanwhile
+  const box = $('#msgs');
+  if (!box) return;
+  if (d.error) {
+    // Keep a saved copy on screen; only an empty pane shows the error.
+    if (openSig) { $('#stat').textContent = 'could not refresh: ' + d.error; return; }
+    box.textContent = ''; box.appendChild(el('div', 'empty', d.error)); return;
+  }
+  if ($('#stat').textContent.startsWith('could not refresh')) $('#stat').textContent = '';
+  renderThread(d.messages || [], want, scroll);
+}
+
+function renderThread(list, want, scroll) {
+  const box = $('#msgs');
+  if (!box || open !== want) return;
+  const sig = list.length + ':' + (list.length ? list[list.length - 1].id + list[list.length - 1].state : '');
+  if (sig === openSig) return;                  // nothing new; don't disturb scroll
+  openSig = sig;
+  const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
+
+  box.textContent = '';
+  if (!list.length) box.appendChild(el('div', 'empty', 'No messages yet.'));
+  let lastDay = '';
+  for (const m of list) {
+    const dl = dayLabel(m.at);
+    if (dl !== lastDay) { box.appendChild(el('div', 'day', dl)); lastDay = dl; }
+    const row = el('div', 'm ' + (m.inbound ? 'them' : 'me') + (m.failed ? ' failed' : ''));
+    for (const md of m.media) {
+      if (/^(video|audio)\//.test(md.mime)) { row.appendChild(player(md, want.line)); continue; }
+      if (!md.mime.startsWith('image/')) { row.appendChild(el('div', 'bub', '[' + (md.mime || 'attachment') + ']')); continue; }
+      const img = el('img');
+      img.loading = 'lazy';
+      img.alt = 'Photo';
+      img.src = '/api/media?id=' + encodeURIComponent(md.id) + '&line=' + encodeURIComponent(want.line);
+      img.onclick = () => {
+        const lb = $('#lb');
+        lb.querySelector('img').src = img.src;
+        $('#lbdl').href = img.src + '&download=1';
+        lb.classList.add('open');
+      };
+      row.appendChild(img);
+    }
+    if (m.text) row.appendChild(el('div', 'bub', m.text));
+    const t = new Date(m.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    row.appendChild(el('div', 'mt', m.failed ? 'Failed · ' + (m.reason || 'not delivered')
+      : t + (m.inbound ? '' : m.state ? ' · ' + m.state : '')));
+    box.appendChild(row);
+  }
+  const nPhotos = list.reduce((n, m) => n + m.media.filter(x => x.mime.startsWith('image/')).length, 0);
+  for (const id of ['#thphotos', '#thzip']) { const b = $(id); if (b) b.style.display = nPhotos ? '' : 'none'; }
+  if ($('#thzip')) $('#thzip').textContent = 'Save all ' + nPhotos + ' photo' + (nPhotos === 1 ? '' : 's');
+  if (scroll || atBottom) box.scrollTop = box.scrollHeight;
+}
+
+// Video or voice memo. preload="none": nothing is downloaded (or converted)
+// until play is pressed. The server converts phone audio (AMR) so it has sound;
+// if it can't on this PC (no ffmpeg), say so rather than play silently.
+function player(md, line) {
+  const wrap = el('div');
+  const v = el(md.mime.startsWith('video/') ? 'video' : 'audio');
+  v.controls = true;
+  v.preload = 'none';
+  v.src = '/api/media?id=' + encodeURIComponent(md.id) + '&line=' + encodeURIComponent(line) + '&play=1';
+  v.addEventListener('play', () => {
+    if (wrap.dataset.checked) return;
+    wrap.dataset.checked = '1';
+    fetch(v.src, { headers: { Range: 'bytes=0-0' } }).then(r => {
+      if (r.headers.get('X-Audio') === 'unsupported')
+        wrap.appendChild(el('div', 'mnote', 'Sound can’t play here: it uses a phone audio format this PC can’t convert (install ffmpeg to fix).'));
+    }).catch(() => {});
+  }, { once: true });
+  wrap.appendChild(v);
+  return wrap;
+}
+
+$('#lb').onclick = (e) => { if (!e.target.closest('.lbbar')) $('#lb').classList.remove('open'); };
+$('#lbx').onclick = () => $('#lb').classList.remove('open');
+$('#q').oninput = renderConvs;
+$('#new').onclick = startCompose;
+
+// New texts: the server says so the moment the platform's live feed does
+// ('messages'), and again once it has processed them ('inbound' / 'item').
+// Both refreshes only fetch what's new.
+let bump = null;
+function refreshSoon() {
+  clearTimeout(bump);
+  bump = setTimeout(() => { loadThread(false); loadConvs(); }, 400);
+}
+try {
+  const es = new EventSource('/api/events');
+  for (const ev of ['messages', 'inbound', 'item']) es.addEventListener(ev, refreshSoon);
+} catch {}
+
+// Backstop refresh in case a live event is missed; skip while hidden.
+setInterval(() => { if (document.visibilityState === 'visible') loadThread(false); }, 8000);
+setInterval(() => { if (document.visibilityState === 'visible') loadConvs(); }, 20000);
+
+(async () => {
+  await loadLines();
+  await loadConvs({ cachedFirst: true });
+  const p = new URLSearchParams(location.search);
+  if (p.get('remote')) {
+    // Without a line (e.g. from the Insights recap), use whichever line has
+    // this conversation, else the one selected.
+    const d = digits(p.get('remote')).slice(-10);
+    const c = convs.find(c => (!p.get('line') || c.line === p.get('line')) && digits(c.remote).endsWith(d));
+    openConv(c || { line: p.get('line') || $('#line').value || convs[0]?.line, remote: p.get('remote'), name: '' });
+  }
+})();
+</script>
+<script src="/dialpad.js"></script>

@@ -1,0 +1,370 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Contacts</title>
+<style>
+:root{
+  --bg:#f6f7f9; --panel:#fff; --ink:#14171c; --muted:#6b7480; --line:#e3e6ea;
+  --accent:#2f6df6; --urgent:#d93025; --high:#e8710a;
+  --ok:#1a7f37; --shadow:0 1px 2px rgba(0,0,0,.05),0 4px 12px rgba(0,0,0,.05);
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){
+  --bg:#0f1216; --panel:#171b21; --ink:#e6e9ee; --muted:#8b95a1; --line:#252b33;
+  --accent:#5b8dff; --urgent:#ff6b5e; --high:#ffa04d;
+  --ok:#4ade80; --shadow:0 1px 2px rgba(0,0,0,.4);
+}}
+:root[data-theme=dark]{
+  --bg:#0f1216; --panel:#171b21; --ink:#e6e9ee; --muted:#8b95a1; --line:#252b33;
+  --accent:#5b8dff; --urgent:#ff6b5e; --high:#ffa04d;
+  --ok:#4ade80; --shadow:0 1px 2px rgba(0,0,0,.4);
+}
+:root{color-scheme:light dark}
+:root[data-theme=light]{color-scheme:light}
+:root[data-theme=dark]{color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font:14px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+header{position:sticky;top:0;z-index:5;background:var(--panel);
+  border-bottom:1px solid var(--line)}
+.bar{display:flex;align-items:center;gap:12px;padding:10px 16px}
+.bar2{display:flex;align-items:center;gap:8px;padding:0 16px 10px;flex-wrap:wrap}
+h1{font-size:15px;margin:0;font-weight:650;letter-spacing:-.01em}
+.grow{flex:1}
+.meta{color:var(--muted);font-size:12px}
+a.navlink{color:var(--muted);text-decoration:none;font-size:13px;padding:6px 10px;
+  border:1px solid var(--line);border-radius:7px}
+a.navlink:hover{color:var(--ink);border-color:var(--accent)}
+button{font:inherit;border:1px solid var(--line);background:var(--panel);color:var(--ink);
+  padding:6px 11px;border-radius:7px;cursor:pointer}
+button:hover{border-color:var(--accent)}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+button.link{border:0;background:none;color:var(--accent);padding:2px 4px;font-size:12px}
+button.link:hover{text-decoration:underline}
+button.del:hover{border-color:var(--urgent);color:var(--urgent)}
+input,select{font:inherit;padding:6px 9px;border-radius:7px;border:1px solid var(--line);
+  background:var(--bg);color:var(--ink)}
+input:focus,select:focus{outline:2px solid var(--accent);outline-offset:-1px;border-color:transparent}
+main{padding:16px;max-width:1000px;margin:0 auto;display:grid;gap:10px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:11px;
+  box-shadow:var(--shadow);padding:11px 14px;display:grid;
+  grid-template-columns:150px 1fr 130px 1fr auto;gap:10px;align-items:center}
+.card.unlabelled{border-left:3px solid var(--high)}
+.num{font-weight:650;font-variant-numeric:tabular-nums}
+.act{font-size:11.5px;color:var(--muted);margin-top:1px}
+.sug{font-size:11.5px;color:var(--muted);margin-top:2px}
+.new{background:var(--panel);border:1px dashed var(--line);border-radius:11px;
+  padding:12px 14px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.empty{text-align:center;color:var(--muted);padding:48px 20px}
+.saved{color:var(--ok);font-size:12px}
+@media(max-width:860px){.card{grid-template-columns:1fr 1fr;}}
+
+/* All / Company / External */
+.tabs{display:flex;gap:2px;padding:0 16px;border-top:1px solid var(--line)}
+.tabs button{border:0;border-radius:0;background:none !important;color:var(--muted);padding:10px 18px 9px;
+  font-weight:600;border-bottom:2px solid transparent;box-shadow:none}
+.tabs button:hover{color:var(--ink)}
+.tabs button.on{color:var(--accent);border-bottom-color:var(--accent)}
+.tabs button[hidden]{display:none}
+.ext-only[hidden]{display:none}
+
+/* Directory list (All, Company) */
+.dir{background:var(--panel);border:1px solid var(--line);border-radius:11px;box-shadow:var(--shadow);overflow:hidden}
+.lt{font-size:12px;font-weight:700;color:var(--muted);padding:12px 16px 4px;letter-spacing:.04em}
+.person{display:flex;align-items:center;gap:12px;padding:8px 14px;border-top:1px solid var(--line)}
+.lt + .person{border-top:0}
+.person:hover{background:var(--bg)}
+.pav{width:38px;height:38px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;
+  font-weight:700;font-size:13px;color:#10131a}
+.ptx{flex:1;min-width:0}
+.ptx b{display:block;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ptx span{display:block;font-size:12.5px;color:var(--muted);font-variant-numeric:tabular-nums}
+.tag{font-size:10.5px;color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:0 7px;flex:none}
+.tag.me{color:var(--accent);border-color:var(--accent)}
+.pact{display:flex;gap:6px;flex:none}
+.pact button{display:inline-flex;align-items:center;gap:6px}
+.pact svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+</style>
+
+<script src="/nav.js"></script>
+<header>
+  <div class="bar">
+    <h1>Contacts</h1>
+    <span class="meta" id="count"></span>
+    <span class="grow"></span>
+    <span class="meta" id="stat"></span>
+  </div>
+  <div class="bar2">
+    <input id="q" placeholder="Search name, number or extension" style="min-width:240px">
+    <select id="roleFilter" class="ext-only"><option value="">All roles</option></select>
+    <label class="meta ext-only"><input type="checkbox" id="onlyNew"> Only unlabelled</label>
+    <span class="grow"></span>
+    <span class="meta ext-only">Names suggested by caller ID</span>
+  </div>
+  <div class="tabs" id="tabs">
+    <button data-tab="all">All</button>
+    <button data-tab="company" hidden>Company</button>
+    <button data-tab="external">External</button>
+  </div>
+</header>
+<main id="app"><div class="empty">Loading&hellip;</div></main>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const pretty = (n) => {
+  const d = String(n || '').replace(/\D/g, '').slice(-10);
+  return d.length === 10 ? '(' + d.slice(0,3) + ') ' + d.slice(3,6) + '-' + d.slice(6) : (n || '');
+};
+const el = (tag, cls, text) => {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text != null) e.textContent = text;
+  return e;
+};
+const saved = localStorage.getItem('theme');
+if (saved) document.documentElement.dataset.theme = saved;
+
+let data = { contacts: [], roles: [] };
+
+async function save(number, patch, flash) {
+  const r = await fetch('/api/contacts', { method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ number, ...patch }) }).then(r => r.json());
+  if (r.error) { $('#stat').textContent = 'Error: ' + r.error; return false; }
+  if (flash) { flash.textContent = 'saved'; setTimeout(() => { flash.textContent = ''; }, 1400); }
+  return true;
+}
+
+function ago(ms) {
+  if (!ms) return 'never';
+  const d = Math.floor((Date.now() - ms) / 86400000);
+  if (d <= 0) return 'today';
+  if (d === 1) return 'yesterday';
+  if (d < 30) return d + 'd ago';
+  if (d < 365) return Math.floor(d / 30) + 'mo ago';
+  return Math.floor(d / 365) + 'y ago';
+}
+
+function row(c) {
+  const card = el('div', 'card' + (c.labelled ? '' : ' unlabelled'));
+
+  const left = el('div');
+  left.appendChild(el('div', 'num', pretty(c.number)));
+  const a = c.activity;
+  const bits = [];
+  if (a.messages) bits.push(a.messages + ' msg');
+  if (a.calls) bits.push(a.calls + ' call' + (a.calls === 1 ? '' : 's'));
+  if (a.voicemails) bits.push(a.voicemails + ' vm');
+  left.appendChild(el('div', 'act', (bits.join(' · ') || 'no traffic') + ' · ' + ago(a.lastSeen)));
+  card.appendChild(left);
+
+  const nameWrap = el('div');
+  const name = el('input');
+  name.value = c.name || '';
+  name.placeholder = 'Name';
+  name.style.width = '100%';
+  nameWrap.appendChild(name);
+  const flash = el('span', 'saved');
+  if (c.suggestedName && !c.name) {
+    const sug = el('div', 'sug');
+    sug.appendChild(document.createTextNode('caller ID says '));
+    const use = el('button', 'link', c.suggestedName);
+    use.title = 'Use this name';
+    use.onclick = async () => {
+      name.value = c.suggestedName;
+      if (await save(c.number, { name: c.suggestedName }, flash)) load();
+    };
+    sug.appendChild(use);
+    nameWrap.appendChild(sug);
+  }
+  card.appendChild(nameWrap);
+
+  const role = el('select');
+  for (const r of data.roles) {
+    const o = el('option', '', r);
+    if (r === c.role) o.selected = true;
+    role.appendChild(o);
+  }
+  card.appendChild(role);
+
+  const note = el('input');
+  note.value = c.note || '';
+  note.placeholder = 'Note (site, company, hours…)';
+  note.style.width = '100%';
+  card.appendChild(note);
+
+  const acts = el('div');
+  acts.style.cssText = 'display:flex;gap:6px;align-items:center';
+  acts.appendChild(flash);
+  const del = el('button', 'del', 'Clear');
+  del.title = 'Remove this label (the number stays if it has traffic)';
+  del.onclick = async () => {
+    await fetch('/api/contacts', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ number: c.number, remove: true }) });
+    load();
+  };
+  acts.appendChild(del);
+  card.appendChild(acts);
+
+  const commit = () => save(c.number, { name: name.value, role: role.value, note: note.value }, flash);
+  name.onchange = commit;
+  note.onchange = commit;
+  role.onchange = async () => { await commit(); load(); };
+
+  return card;
+}
+
+// ---- All / Company ---------------------------------------------------------------
+const PHONE_SVG = '<svg viewBox="0 0 24 24"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2"/></svg>';
+const TINTS = ['#bfe3ef', '#c9d8f2', '#f3c6cc', '#fbdcae', '#fbe7a8', '#cfe9dc', '#f5c1bd', '#d9d2f2'];
+const initials = (name) => {
+  const w = String(name || '').replace(/[^A-Za-z ]/g, ' ').trim().split(/\s+/).filter(Boolean);
+  return w.length ? (w[0][0] + (w[1] ? w[1][0] : '')).toUpperCase() : '#';
+};
+const tint = (s) => { let h = 0; for (const ch of String(s)) h = (h * 31 + ch.charCodeAt(0)) >>> 0; return TINTS[h % TINTS.length]; };
+
+function callBtn(label, number, title) {
+  const b = el('button');
+  b.innerHTML = PHONE_SVG;                 // static icon only
+  b.appendChild(document.createTextNode(label));
+  b.title = title;
+  b.onclick = () => window.switchboardCall ? window.switchboardCall(number) : (location.href = 'tel:' + number);
+  return b;
+}
+
+// p: { name, sub, tag, me, ext, number }
+function personRow(p) {
+  const r = el('div', 'person');
+  const av = el('div', 'pav', initials(p.name));
+  av.style.background = tint(p.name);
+  const tx = el('div', 'ptx');
+  tx.append(el('b', '', p.name), el('span', '', p.sub));
+  r.append(av, tx);
+  if (p.me) r.appendChild(el('span', 'tag me', 'You'));
+  else if (p.tag) r.appendChild(el('span', 'tag', p.tag));
+  const acts = el('div', 'pact');
+  if (!p.me && p.ext) acts.appendChild(callBtn('Call', p.ext, 'Call extension ' + p.ext));
+  if (!p.me && p.number) acts.appendChild(callBtn(p.ext ? 'Direct' : 'Call', p.number, 'Call ' + pretty(p.number)));
+  r.appendChild(acts);
+  return r;
+}
+
+const companyPeople = () => (org?.members ?? []).map(m => ({
+  name: m.name, ext: m.ext, number: m.number, me: m.me, tag: 'Company',
+  sub: [m.ext ? 'Ext. ' + m.ext : '', m.number ? pretty(m.number) : ''].filter(Boolean).join(' · '),
+}));
+const externalPeople = () => data.contacts.map(c => ({
+  name: c.name || c.suggestedName || pretty(c.number), number: c.number, tag: 'External',
+  sub: (c.name || c.suggestedName) ? pretty(c.number) : (c.role && c.role !== 'unknown' ? c.role : ''),
+}));
+
+function renderDirectory(people) {
+  const q = $('#q').value.trim().toLowerCase(), qd = q.replace(/\D/g, '');
+  let list = people;
+  if (q) list = list.filter(p => p.name.toLowerCase().includes(q) ||
+    (qd && (String(p.ext || '').includes(qd) || String(p.number || '').replace(/\D/g, '').includes(qd))));
+  list = [...list].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+  $('#count').textContent = list.length + ' of ' + people.length;
+  const app = $('#app');
+  app.textContent = '';
+  if (tab === 'company' && orgError) { app.appendChild(el('div', 'empty', 'Could not load the company directory: ' + orgError)); return; }
+  if (!list.length) { app.appendChild(el('div', 'empty', people.length ? 'No matching contacts.' : 'No contacts yet.')); return; }
+  const box = el('div', 'dir');
+  let letter = null;
+  for (const p of list) {
+    const l = /[a-z]/i.test(p.name[0]) ? p.name[0].toUpperCase() : '#';
+    if (l !== letter) { letter = l; box.appendChild(el('div', 'lt', l)); }
+    box.appendChild(personRow(p));
+  }
+  app.appendChild(box);
+}
+
+let tab = 'all';
+try { tab = localStorage.getItem('contactsTab') || 'all'; } catch {}
+let org = null, orgError = '';
+
+function render() {
+  if (tab === 'company' && $('#tabs [data-tab=company]').hidden) tab = 'all';
+  for (const b of $('#tabs').children) b.classList.toggle('on', b.dataset.tab === tab);
+  for (const e of document.querySelectorAll('.ext-only')) e.hidden = tab !== 'external';
+  if (tab === 'company') return renderDirectory(companyPeople().map(p => ({ ...p, tag: '' })));
+  if (tab === 'all') return renderDirectory([...companyPeople(), ...externalPeople()]);
+  renderExternal();
+}
+
+for (const b of $('#tabs').children) b.onclick = () => {
+  tab = b.dataset.tab;
+  try { localStorage.setItem('contactsTab', tab); } catch {}
+  render();
+};
+
+// ---- External (your own labels) ---------------------------------------------------
+function renderExternal() {
+  const q = $('#q').value.trim().toLowerCase();
+  const rf = $('#roleFilter').value;
+  const onlyNew = $('#onlyNew').checked;
+
+  let list = data.contacts;
+  if (q) list = list.filter(c =>
+    (c.name || '').toLowerCase().includes(q) ||
+    (c.suggestedName || '').toLowerCase().includes(q) ||
+    String(c.number).includes(q.replace(/\D/g, '')) ||
+    pretty(c.number).includes(q));
+  if (rf) list = list.filter(c => c.role === rf);
+  if (onlyNew) list = list.filter(c => !c.labelled);
+
+  $('#count').textContent = list.length + ' of ' + data.contacts.length;
+  const app = $('#app');
+  app.textContent = '';
+
+  const add = el('div', 'new');
+  const num = el('input'); num.placeholder = '+1 555 123 4567'; num.style.width = '190px';
+  const nm = el('input'); nm.placeholder = 'Name';
+  const rl = el('select');
+  for (const r of data.roles) rl.appendChild(el('option', '', r));
+  const go = el('button', 'primary', 'Add contact');
+  go.onclick = async () => {
+    if (!num.value.trim()) { $('#stat').textContent = 'Enter a number first.'; return; }
+    const r = await fetch('/api/contacts', { method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ number: num.value, name: nm.value, role: rl.value }) }).then(r => r.json());
+    if (r.error) { $('#stat').textContent = 'Error: ' + r.error; return; }
+    num.value = ''; nm.value = ''; $('#stat').textContent = '';
+    load();
+  };
+  add.append(num, nm, rl, go);
+  app.appendChild(add);
+
+  if (!list.length) { app.appendChild(el('div', 'empty', 'No matching contacts.')); return; }
+  for (const c of list) app.appendChild(row(c));
+}
+
+// Company comes from the phone platform's account; without a signed-in
+// account (409) the tab stays hidden.
+async function loadCompany() {
+  try {
+    const r = await fetch('/api/company');
+    if (r.status === 409) return;
+    const j = await r.json().catch(() => ({}));
+    $('#tabs [data-tab=company]').hidden = false;
+    if (!r.ok || j.error) { orgError = j.error || ('HTTP ' + r.status); org = null; }
+    else { org = j; orgError = ''; }
+    render();
+  } catch {}
+}
+
+async function load() {
+  data = await (await fetch('/api/directory')).json();
+  const rf = $('#roleFilter');
+  if (rf.options.length <= 1) {
+    for (const r of data.roles) rf.appendChild(el('option', '', r));
+  }
+  render();
+}
+
+$('#q').oninput = render;
+$('#roleFilter').onchange = render;
+$('#onlyNew').onchange = render;
+load();
+loadCompany();
+</script>
+<script src="/dialpad.js"></script>

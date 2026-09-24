@@ -1,0 +1,716 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Settings</title>
+<style>
+:root{
+  --bg:#f6f7f9; --panel:#fff; --ink:#14171c; --muted:#6b7480; --line:#e3e6ea;
+  --accent:#2f6df6; --urgent:#d93025; --high:#e8710a; --ok:#1a7f37; --sel:#e8eefc;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){
+  --bg:#0f1216; --panel:#171b21; --ink:#e6e9ee; --muted:#8b95a1; --line:#252b33;
+  --accent:#5b8dff; --urgent:#ff6b5e; --high:#ffa04d; --ok:#4ade80; --sel:#1f2a3d;
+}}
+:root[data-theme=dark]{
+  --bg:#0f1216; --panel:#171b21; --ink:#e6e9ee; --muted:#8b95a1; --line:#252b33;
+  --accent:#5b8dff; --urgent:#ff6b5e; --high:#ffa04d; --ok:#4ade80; --sel:#1f2a3d;
+}
+:root{color-scheme:light dark}
+:root[data-theme=light]{color-scheme:light}
+:root[data-theme=dark]{color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font:14px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+header{position:sticky;top:0;z-index:5;background:var(--panel);border-bottom:1px solid var(--line)}
+.bar{display:flex;align-items:center;gap:10px;padding:10px 16px}
+h1{font-size:15px;margin:0;font-weight:650}
+.grow{flex:1}
+.toast{font-size:12.5px;color:var(--ok);opacity:0;transition:opacity .2s}
+.toast.show{opacity:1}
+.toast.err{color:var(--urgent)}
+main{padding:18px 16px 60px;max-width:720px;margin:0 auto;display:grid;gap:14px}
+section{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:6px 18px}
+h2{font-size:12px;margin:12px 0 2px;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;font-weight:650}
+.row{display:flex;align-items:center;gap:14px;padding:12px 0}
+/* A divider above every row but a section's first visible one, so hiding
+   rows (no account) never leaves a stray line under a heading. */
+.row:not([hidden]) ~ .row{border-top:1px solid var(--line)}
+.row .lbl{flex:1;min-width:0}
+.row .lbl b{display:block;font-weight:600}
+.row .lbl span{display:block;font-size:12.5px;color:var(--muted);margin-top:1px}
+.row.off{opacity:.5}
+button,select,input{font:inherit;color:var(--ink)}
+button{border:1px solid var(--line);background:var(--panel);padding:6px 12px;border-radius:7px;cursor:pointer;white-space:nowrap}
+button:hover{border-color:var(--accent)}
+button:disabled{opacity:.5;cursor:not-allowed}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+button.danger:hover{border-color:var(--urgent);color:var(--urgent)}
+select,input[type=text],input[type=url]{border:1px solid var(--line);background:var(--bg);padding:6px 9px;border-radius:7px}
+select{min-width:190px}
+input[type=text],input[type=url]{min-width:0}
+/* toggle switch */
+.sw{position:relative;width:42px;height:24px;flex:none}
+.sw input{opacity:0;width:0;height:0;position:absolute}
+.sw i{position:absolute;inset:0;border-radius:999px;background:var(--line);transition:background .15s;cursor:pointer}
+.sw i::after{content:'';position:absolute;left:3px;top:3px;width:18px;height:18px;border-radius:50%;background:#fff;
+  transition:transform .15s;box-shadow:0 1px 2px rgba(0,0,0,.3)}
+.sw input:checked + i{background:var(--accent)}
+.sw input:checked + i::after{transform:translateX(18px)}
+.sw input:focus-visible + i{outline:2px solid var(--accent);outline-offset:2px}
+.sw input:disabled + i{opacity:.45;cursor:not-allowed}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.seg button{border:0;border-radius:0;padding:6px 12px}
+.seg button + button{border-left:1px solid var(--line)}
+.seg button.on{background:var(--sel);color:var(--accent);font-weight:600}
+input[type=range]{width:160px;accent-color:var(--accent)}
+.path{font-size:12.5px;color:var(--muted);word-break:break-all}
+.line{display:flex;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--line)}
+.line .num{font-weight:650;font-variant-numeric:tabular-nums;width:130px;flex:none}
+.line input[type=text]{flex:1}
+.pill{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--accent);
+  border:1px solid var(--accent);border-radius:999px;padding:1px 8px;flex:none}
+.addline{display:flex;gap:8px;padding:10px 0 12px;border-top:1px solid var(--line)}
+.addline input{flex:1}
+.blocked{border-color:var(--urgent);padding:14px 18px}
+.muted{color:var(--muted);font-size:12.5px}
+input[type=password]{border:1px solid var(--line);background:var(--bg);padding:6px 9px;border-radius:7px;min-width:0}
+.row[hidden]{display:none}
+.cloudwarn{margin:0 0 12px;padding:10px 12px;border-radius:10px;font-size:12.5px;line-height:1.5;
+  border:1px solid color-mix(in srgb,var(--high) 45%,transparent);background:color-mix(in srgb,var(--high) 10%,transparent)}
+.cloudwarn b{color:var(--high)}
+/* A row whose control needs the full width (the triage instructions box). */
+.row.stack{flex-wrap:wrap}
+.row.stack .lbl{flex-basis:100%}
+.row.stack textarea{flex-basis:100%;min-height:180px;resize:vertical;border:1px solid var(--line);background:var(--bg);
+  color:var(--ink);font:12.5px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace;padding:9px 11px;border-radius:8px}
+.row.stack textarea:focus{outline:2px solid var(--accent);outline-offset:-1px;border-color:transparent}
+.row.stack .acts{display:flex;gap:8px;flex-basis:100%;justify-content:flex-end}
+.row .lbl span.ok{color:var(--ok)}
+.row .lbl span.bad{color:var(--urgent)}
+button.ok{border-color:var(--ok);color:var(--ok)}
+button.bad{border-color:var(--urgent);color:var(--urgent)}
+/* In-page confirm. Native confirm() in Electron can leave the page's inputs
+   dead until a reload, so Settings never uses it. */
+.ask{position:fixed;inset:0;z-index:950;display:flex;align-items:center;justify-content:center;padding:16px;
+  background:rgba(5,8,14,.45);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
+.ask[hidden]{display:none}
+.ask-box{width:420px;max-width:100%;background:var(--menu,var(--panel));color:var(--ink);border:1px solid var(--line);
+  border-radius:16px;padding:18px 20px;box-shadow:0 20px 60px rgba(0,0,0,.45)}
+.ask-box b{display:block;font-size:15px;margin-bottom:6px}
+.ask-box p{margin:0 0 16px;color:var(--muted);font-size:13px;line-height:1.55;white-space:pre-line}
+.ask-box div{display:flex;justify-content:flex-end;gap:8px}
+</style>
+
+<script src="/nav.js"></script>
+<script src="/sounds.js"></script>
+<header>
+  <div class="bar">
+    <h1>Settings</h1>
+    <span class="grow"></span>
+    <span class="toast" id="toast"></span>
+  </div>
+</header>
+
+<main id="app">
+  <section class="blocked" id="blocked" hidden>
+    <b>Open Settings in the desktop app</b>
+    <p class="muted">Settings can only be changed from the Switchboard app window, not a browser. Start it with Switchboard.bat.</p>
+  </section>
+
+  <section>
+    <h2>General</h2>
+    <div class="row"><div class="lbl"><b>Open to</b><span>The page the app shows when it starts.</span></div>
+      <select data-k="general.startPage" id="startPage">
+        <option value="/messages" data-platform>Messages</option><option value="/calls" data-platform>Calls</option>
+        <option value="/voicemail" data-platform>Voicemail</option><option value="/contacts">Contacts</option>
+        <option value="/photos" data-platform>Photos</option><option value="/" data-platform data-triage>Triage</option><option value="/insights" data-platform>Insights</option>
+      </select></div>
+    <div class="row"><div class="lbl"><b>Appearance</b></div>
+      <div class="seg" id="theme"><button data-v="dark">Dark</button><button data-v="light">Light</button><button data-v="system">System</button></div></div>
+    <div class="row"><div class="lbl"><b>Animated background</b><span>Off freezes the background where it is. Saves a little GPU.</span></div>
+      <label class="sw"><input type="checkbox" data-k="general.animatedBackground" id="animBg"><i></i></label></div>
+    <div class="row" id="loginRow"><div class="lbl"><b>Start when Windows starts</b><span>Keeps you reachable without opening the app yourself.</span></div>
+      <label class="sw"><input type="checkbox" id="loginItem"><i></i></label></div>
+    <div class="row"><div class="lbl"><b>Desktop shortcut</b><span>Puts a Switchboard icon on your desktop. Recreate it here if it goes missing.</span></div>
+      <button id="mkShortcut">Create</button></div>
+  </section>
+
+  <section>
+    <h2>Notifications</h2>
+    <div class="row" data-platform><div class="lbl"><b>New messages</b><span>A Windows notification for each new text.</span></div>
+      <label class="sw"><input type="checkbox" data-k="notifications.messages"><i></i></label></div>
+    <div class="row" data-dep="notifications.messages" data-platform data-triage><div class="lbl"><b>Include low-priority messages</b><span>"Thanks", "got it" and similar.</span></div>
+      <label class="sw"><input type="checkbox" data-k="notifications.lowUrgency"><i></i></label></div>
+    <div class="row" data-platform data-triage><div class="lbl"><b>Sound for low-priority messages</b><span>Off: low-priority messages arrive silently. Normal and urgent ones always play a sound.</span></div>
+      <label class="sw"><input type="checkbox" data-k="notifications.lowUrgencySound"><i></i></label></div>
+    <div class="row"><div class="lbl"><b>Incoming calls</b><span>The phone window still pops up either way.</span></div>
+      <label class="sw"><input type="checkbox" data-k="notifications.calls"><i></i></label></div>
+  </section>
+
+  <section data-platform>
+    <h2>Lines</h2>
+    <p class="muted" style="margin:4px 0 8px">The first enabled line is your primary — it's used for new messages and shown in the sidebar.
+      Turning a line off hides it everywhere in this app; nothing changes on your provider's side.</p>
+    <div id="lines"></div>
+    <div class="addline">
+      <input type="text" id="newNum" placeholder="Add a line: +1 555 123 4567">
+      <input type="text" id="newLabel" placeholder="Label (optional)" style="max-width:170px">
+      <button id="addLine">Add</button>
+    </div>
+  </section>
+
+  <section>
+    <h2>Phone</h2>
+    <div class="row"><div class="lbl"><b>In-app phone</b><span>Registers this app as one of your phones. Off means your extension won't ring here.</span></div>
+      <label class="sw"><input type="checkbox" data-k="phone.enabled" data-phone><i></i></label></div>
+    <div class="row" data-dep="phone.enabled"><div class="lbl"><b>Use it for "Make a call"</b><span>Off hands the number to your default phone app instead.</span></div>
+      <label class="sw"><input type="checkbox" data-k="phone.preferApp" data-phone><i></i></label></div>
+    <div class="row"><div class="lbl"><b>Phone device</b><span id="sipState">SIP username and password.</span></div>
+      <button onclick="location.href='/account'">Manage</button></div>
+    <div class="row"><div class="lbl"><b>SIP trace</b><span>For troubleshooting calls with your provider. Saves the phone's SIP messages to logs\sip-trace.log (login headers left out). Leave off otherwise.</span></div>
+      <label class="sw"><input type="checkbox" data-k="phone.sipTrace" data-phone><i></i></label></div>
+  </section>
+
+  <section id="sounds">
+    <h2>Sounds</h2>
+    <div class="row"><div class="lbl"><b>Ringtone</b><span id="ringNote">Incoming calls to the in-app phone.</span></div>
+      <select data-k="sounds.ringtone" id="ringSel"></select>
+      <button id="ringPlay" title="Play">&#9654;</button><button id="ringPick">Choose file&hellip;</button></div>
+    <div class="row"><div class="lbl"><b>Ring volume</b></div>
+      <input type="range" min="0" max="100" step="5" data-k="phone.ringVolume" data-num></div>
+    <div class="row" data-platform><div class="lbl"><b>Message sound</b><span id="msgNote">Plays with each new-message notification.</span></div>
+      <select data-k="sounds.message" id="msgSel"></select>
+      <button id="msgPlay" title="Play">&#9654;</button><button id="msgPick">Choose file&hellip;</button></div>
+    <div class="row" data-platform data-triage><div class="lbl"><b>Urgent message sound</b><span id="urgNote">For urgent and high-priority messages.</span></div>
+      <select data-k="sounds.urgent" id="urgSel"></select>
+      <button id="urgPlay" title="Play">&#9654;</button><button id="urgPick">Choose file&hellip;</button></div>
+    <div class="row" data-platform><div class="lbl"><b>Message volume</b></div>
+      <input type="range" min="0" max="100" step="5" data-k="sounds.messageVolume" data-num></div>
+    <div class="row" data-platform><div class="lbl"><b>Send a test notification</b><span>A real Windows notification with your chosen sound.</span></div>
+      <button id="testMsg">Normal</button><button id="testUrg" data-triage>Urgent</button></div>
+  </section>
+
+  <section data-platform>
+    <h2>Triage &amp; AI</h2>
+    <div class="row"><div class="lbl"><b>Triage new messages</b><span>Categorises and drafts replies using the AI platform below. On a local platform it uses your CPU/GPU — turn off to free it up.</span></div>
+      <label class="sw"><input type="checkbox" data-k="triage.enabled"><i></i></label></div>
+    <div class="row"><div class="lbl"><b>Check for new messages every</b><span>Backup to the live connection. Used for notifications whether triage is on or off.</span></div>
+      <select data-k="triage.pollSeconds" data-num>
+        <option value="30">30 seconds</option><option value="60">1 minute</option><option value="120">2 minutes</option>
+        <option value="300">5 minutes</option><option value="600">10 minutes</option>
+      </select></div>
+    <div class="row" data-dep="triage.enabled"><div class="lbl"><b>Describe photos</b><span>About 3 seconds per photo. Off: photos are marked as attachments and flagged for you.</span></div>
+      <label class="sw"><input type="checkbox" data-k="triage.describePhotos"><i></i></label></div>
+    <div class="row stack"><div class="lbl"><b>Triage instructions</b><span id="instrNote">How the AI should judge and answer messages.</span></div>
+      <textarea id="instr" data-k="triage.instructions" rows="10" maxlength="4000" spellcheck="true"
+        aria-describedby="instrNote"></textarea>
+      <div class="acts"><button type="button" id="instrCopy">Start from the default</button>
+        <button type="button" id="instrReset">Use default</button></div></div>
+    <div class="row"><div class="lbl"><b>AI platform</b><span id="aiNote">Where triage, photo descriptions and summaries run.</span></div>
+      <select id="aiProvider">
+        <option value="lmstudio">LM Studio — this PC</option>
+        <option value="ollama">Ollama — this PC</option>
+        <option value="anthropic">Claude — Anthropic cloud</option>
+        <option value="openai">OpenAI — cloud</option>
+      </select></div>
+    <div class="cloudwarn" id="cloudWarn" hidden>
+      <b>Messages leave this PC.</b> Every text, photo and thread you triage is sent to <span id="cloudWho"></span>
+      and billed to your API key. The local platforms keep everything on your machines.
+    </div>
+    <div class="row" data-ai="lmstudio"><div class="lbl"><b>LM Studio address</b><span id="lmState">Must be on this PC or your local network.</span></div>
+      <input type="url" id="lmUrl" style="width:230px"><button id="lmTest">Test</button></div>
+    <div class="row" data-ai="ollama"><div class="lbl"><b>Ollama address</b><span id="olState">Must be on this PC or your local network.</span></div>
+      <input type="url" id="olUrl" style="width:230px"><button id="olTest">Test</button></div>
+    <div class="row" data-ai="anthropic openai"><div class="lbl"><b>API key</b><span id="keyState"></span></div>
+      <input type="password" id="aiKey" autocomplete="off" spellcheck="false" style="width:180px"><button id="keySave">Save</button><button id="keyTest">Test</button><button class="danger" id="keyDel">Remove</button></div>
+    <div class="row"><div class="lbl"><b>Text model</b><span>For triage, summaries and drafts.</span></div>
+      <select id="model"></select></div>
+    <div class="row"><div class="lbl"><b>Photo model</b><span id="vNote">Must support images.</span></div>
+      <select id="vmodel"></select></div>
+    <div class="row"><div class="lbl"><b>Speech-to-text</b><span>For voicemail and call recordings. Larger is more accurate and slower.</span></div>
+      <select data-k="triage.whisperModel">
+        <option value="tiny.en">Tiny — fastest, rough</option><option value="base.en">Base — fast (default)</option>
+        <option value="small.en">Small — better, ~2-3× slower</option><option value="medium.en">Medium — best, slow</option>
+      </select></div>
+  </section>
+
+  <section data-platform>
+    <h2>Daily recap</h2>
+    <div class="row"><div class="lbl"><b>Morning recap</b><span>Reviews yesterday's texts, calls and voicemail with the AI platform above. Shown at the top of Insights.</span></div>
+      <label class="sw"><input type="checkbox" data-k="review.enabled"><i></i></label></div>
+    <div class="row" data-dep="review.enabled"><div class="lbl"><b>Ready by</b><span>Written at this time each day, or when the app next opens after it.</span></div>
+      <select data-k="review.time" id="reviewTime"></select></div>
+    <div class="row" data-dep="review.enabled"><div class="lbl"><b>Transcribe calls first</b><span>Recorded calls and voicemail that haven't been transcribed yet are transcribed locally before the recap. Up to 25 a day, 10-60 seconds each.</span></div>
+      <label class="sw"><input type="checkbox" data-k="review.transcribe"><i></i></label></div>
+  </section>
+
+  <section data-platform>
+    <h2>Downloads</h2>
+    <div class="row"><div class="lbl"><b>Save photos to</b><span class="path" id="folder"></span></div>
+      <button id="pick">Change&hellip;</button><button id="openFolder">Open</button></div>
+    <div class="row"><div class="lbl"><b>Ask where to save each time</b></div>
+      <label class="sw"><input type="checkbox" data-k="downloads.ask"><i></i></label></div>
+  </section>
+
+  <section>
+    <h2>Account</h2>
+    <div class="row"><div class="lbl"><b>Account &amp; phone</b><span id="acctState"></span></div>
+      <button onclick="location.href='/account'">Manage</button></div>
+  </section>
+
+  <section>
+    <h2>Data</h2>
+    <div class="row" data-platform><div class="lbl"><b>Refresh cached data</b><span>Reloads contacts, photos and call history from your account.</span></div>
+      <button id="clearCache">Refresh</button></div>
+    <div class="row"><div class="lbl"><b>Reset settings</b><span>Back to defaults. Lines, contacts and logins are kept.</span></div>
+      <button class="danger" id="reset">Reset</button></div>
+    <div class="row"><div class="lbl"><b>About</b><span id="about"></span></div></div>
+  </section>
+</main>
+
+<div class="ask" id="ask" hidden role="dialog" aria-modal="true" aria-labelledby="askT">
+  <div class="ask-box"><b id="askT"></b><p id="askP"></p>
+    <div><button id="askNo">Cancel</button><button class="primary" id="askYes">Continue</button></div></div>
+</div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+// Recap times: every half hour, 4 AM to 11:30 AM.
+for (let m = 4 * 60; m < 12 * 60; m += 30) {
+  const v = String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0');
+  const o = document.createElement('option');
+  o.value = v;
+  o.textContent = new Date(2000, 0, 1, Math.floor(m / 60), m % 60).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  document.querySelector('#reviewTime').appendChild(o);
+}
+
+// Promise-based confirm drawn in the page (see .ask in the styles).
+function ask(title, body = '', yes = 'Continue') {
+  return new Promise((resolve) => {
+    const box = $('#ask');
+    $('#askT').textContent = title;
+    $('#askP').textContent = body;
+    $('#askYes').textContent = yes;
+    box.hidden = false;
+    const done = (v) => {
+      box.hidden = true;
+      document.removeEventListener('keydown', key, true);
+      $('#askYes').onclick = $('#askNo').onclick = box.onclick = null;
+      resolve(v);
+    };
+    const key = (e) => { if (e.key === 'Escape') { e.preventDefault(); done(false); } };
+    document.addEventListener('keydown', key, true);
+    $('#askYes').onclick = () => done(true);
+    $('#askNo').onclick = () => done(false);
+    box.onclick = (e) => { if (e.target === box) done(false); };
+    $('#askNo').focus();
+  });
+}
+const saved = localStorage.getItem('theme');
+if (saved) document.documentElement.dataset.theme = saved;
+const digits = (s) => String(s || '').replace(/\D/g, '');
+const pretty = (n) => {
+  const d = digits(n).slice(-10);
+  return d.length === 10 ? '(' + d.slice(0,3) + ') ' + d.slice(3,6) + '-' + d.slice(6) : String(n || '');
+};
+const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+const phone = new BroadcastChannel('switchboard-phone');
+
+let S = null;          // current settings
+let meta = null;       // the rest of the GET payload
+let toastTimer = null;
+
+function toast(text, err = false) {
+  const t = $('#toast');
+  t.textContent = text;
+  t.className = 'toast show' + (err ? ' err' : '');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { t.className = 'toast'; }, err ? 5000 : 1600);
+}
+
+async function api(path, body) {
+  const r = await fetch(path, body === undefined ? {} : {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok || j.error) throw new Error(j.error || ('HTTP ' + r.status));
+  return j;
+}
+
+async function save(patch, { phoneReload = false } = {}) {
+  try {
+    const j = await api('/api/settings', patch);
+    S = j.settings;
+    toast('Saved');
+    renderInstr();
+    if ('triage.enabled' in patch) { applyProfile(); window.switchboardNav?.refresh(); }
+    if (phoneReload) phone.postMessage({ type: 'reload' });
+    applyDeps();
+  } catch (e) { toast(e.message, true); render(); }
+}
+
+const getK = (k) => { const [a, b] = k.split('.'); return S[a][b]; };
+
+function applyDeps() {
+  for (const row of document.querySelectorAll('[data-dep]')) {
+    const on = !!getK(row.dataset.dep);
+    row.classList.toggle('off', !on);
+    for (const i of row.querySelectorAll('input,select,button')) i.disabled = !on;
+  }
+}
+
+function applyTheme(t) {
+  if (t === 'system') { delete document.documentElement.dataset.theme; try { localStorage.removeItem('theme'); } catch {} }
+  else { document.documentElement.dataset.theme = t; try { localStorage.setItem('theme', t); } catch {} }
+}
+
+// ---- AI platform ---------------------------------------------------------------------
+// Each platform keeps its own model choices; the two pickers point at the
+// current platform's keys (read by the generic data-k save handler).
+const AI_KEYS = {
+  lmstudio: ['triage.model', 'triage.visionModel'],
+  ollama: ['ai.ollamaModel', 'ai.ollamaVisionModel'],
+  anthropic: ['ai.anthropicModel', 'ai.anthropicVisionModel'],
+  openai: ['ai.openaiModel', 'ai.openaiVisionModel'],
+};
+const AI_NAME = { lmstudio: 'LM Studio', ollama: 'Ollama', anthropic: 'Anthropic (Claude)', openai: 'OpenAI' };
+const cloud = (p) => p === 'anthropic' || p === 'openai';
+const prov = () => S.ai.provider;
+
+function fillModels(list) {
+  for (const sel of [$('#model'), $('#vmodel')]) {
+    const cur = getK(sel.dataset.k);
+    sel.textContent = '';
+    if (!cur) { const o = el('option', '', 'Choose a model…'); o.value = ''; o.disabled = true; o.selected = true; sel.appendChild(o); }
+    for (const m of [...new Set([cur, ...list])].filter(Boolean)) {
+      const o = el('option', '', m); o.value = m; if (m === cur) o.selected = true; sel.appendChild(o);
+    }
+  }
+}
+
+function renderAi() {
+  const p = prov();
+  $('#aiProvider').value = p;
+  $('#model').dataset.k = AI_KEYS[p][0];
+  $('#vmodel').dataset.k = AI_KEYS[p][1];
+  for (const row of document.querySelectorAll('[data-ai]')) row.hidden = !row.dataset.ai.split(' ').includes(p);
+  $('#cloudWarn').hidden = !cloud(p);
+  $('#cloudWho').textContent = AI_NAME[p];
+  $('#lmUrl').value = S.triage.lmStudioUrl;
+  $('#olUrl').value = S.ai.ollamaUrl;
+  $('#vNote').textContent = cloud(p) ? 'Must support images.'
+    : 'Must support images. Using the same model as above avoids reloading (much faster).';
+  if (cloud(p)) {
+    const has = !!meta.account.ai?.[p];
+    $('#keyState').className = has ? '' : 'bad';
+    $('#keyState').textContent = has ? 'Saved and encrypted on this PC. Enter a new one to replace it.'
+      : 'Not set. Triage waits until a key is saved.';
+    $('#keyTest').disabled = !has;
+    $('#aiKey').placeholder = has ? '••••••••  (saved)' : (p === 'anthropic' ? 'sk-ant-…' : 'sk-…');
+    $('#keyDel').disabled = !has;
+  }
+}
+
+// Where the current platform's connection status is written.
+const stateEl = () => $({ lmstudio: '#lmState', ollama: '#olState' }[prov()] || '#keyState');
+function setState(text, cls = '') { const s = stateEl(); s.textContent = text; s.className = cls; }
+
+// Fetches the platform's model list into the pickers. Throws on failure.
+async function fetchModels(url) {
+  const p = prov();
+  const j = await api('/api/settings/models?provider=' + p + (url ? '&url=' + encodeURIComponent(url) : ''));
+  if (p !== prov()) return null;                                  // switched again meanwhile
+  if (!j.ok) { fillModels([]); throw new Error(j.error); }
+  fillModels(j.models);
+  return j.models.length + ' model' + (j.models.length === 1 ? '' : 's') + ' available';
+}
+// Background load on open / platform switch: status line only.
+async function loadModels() {
+  setState('Checking…');
+  try { const n = await fetchModels(); if (n) setState('Connected — ' + n + '.', 'ok'); }
+  catch (e) { setState(e.message, 'bad'); }
+}
+
+// Test buttons: the button itself says how it went, and so do the status
+// line and a toast.
+async function testing(btn, run) {
+  btn.disabled = true; btn.className = ''; btn.textContent = 'Testing…';
+  setState('Testing…');
+  let ok = false, msg;
+  try { msg = await run(); ok = true; } catch (e) { msg = e.message; }
+  setState(msg, ok ? 'ok' : 'bad');
+  btn.textContent = ok ? '✓ Connected' : '✗ Failed';
+  btn.className = ok ? 'ok' : 'bad';
+  btn.disabled = false;
+  toast(ok ? 'Connection OK' : msg, !ok);
+  clearTimeout(btn._t);
+  btn._t = setTimeout(() => { btn.textContent = 'Test'; btn.className = ''; }, 5000);
+  return ok;
+}
+
+$('#aiProvider').onchange = async () => {
+  const p = $('#aiProvider').value;
+  if (cloud(p) && !(await ask(`Send your messages to ${AI_NAME[p]}?`,
+      `Every text, photo and thread summary will be processed on ${AI_NAME[p]}'s servers and billed to your API key.\n\nYou can switch back to a local platform at any time.`,
+      'Use ' + AI_NAME[p]))) {
+    $('#aiProvider').value = prov();
+    return;
+  }
+  await save({ 'ai.provider': p });
+  renderAi();
+  if (!cloud(p) || meta.account.ai?.[p]) loadModels();
+  else fillModels([]);
+};
+
+$('#keySave').onclick = async () => {
+  const key = $('#aiKey').value.trim();
+  if (!key) { $('#aiKey').focus(); return; }
+  setState('Checking the key with ' + AI_NAME[prov()] + '…');
+  try {
+    const j = await api('/api/settings/action', { action: 'aiKey', value: { provider: prov(), key } });
+    meta.account = j.account;
+    $('#aiKey').value = '';
+    renderAi();
+    fillModels(j.models || []);
+    setState('Key saved. Press Test to try it with the selected model.', 'ok');
+    toast('Key saved');
+  } catch (e) { setState(e.message, 'bad'); }
+};
+// Cloud test: the key, then one tiny request to the chosen text model, so a
+// model the key can't use shows up here rather than in the triage queue.
+$('#keyTest').onclick = () => testing($('#keyTest'), async () => {
+  if ($('#aiKey').value.trim()) throw new Error('Save the key first, then test.');
+  if (!meta.account.ai?.[prov()]) throw new Error('No ' + AI_NAME[prov()] + ' key saved yet.');
+  await fetchModels();
+  const j = await api('/api/settings/action', { action: 'aiTest' });
+  return `Connected — ${j.model} answered in ${(j.ms / 1000).toFixed(1)}s.`;
+});
+$('#aiKey').onkeydown = (e) => { if (e.key === 'Enter') $('#keySave').click(); };
+for (const sel of [$('#model'), $('#vmodel')]) {
+  sel.addEventListener('change', () => { if (sel.value) save({ [sel.dataset.k]: sel.value }); });
+}
+$('#keyDel').onclick = async () => {
+  if (!(await ask('Remove the saved ' + AI_NAME[prov()] + ' API key?', 'Triage on ' + AI_NAME[prov()] + ' stops until a new key is saved.', 'Remove'))) return;
+  try {
+    const j = await api('/api/settings/action', { action: 'aiKey', value: { provider: prov(), key: '' } });
+    meta.account = j.account; renderAi(); toast('Key removed');
+  } catch (e) { toast(e.message, true); }
+};
+
+// Triage instructions: the built-in text is the box's placeholder; anything
+// typed replaces it (saved by the generic data-k handler when the box loses focus).
+function renderInstr() {
+  if (!S || !meta) return;
+  const custom = !!String(S.triage.instructions || '').trim();
+  $('#instr').placeholder = meta.triageDefault || '';
+  $('#instrNote').textContent = custom
+    ? 'Custom: replaces the built-in instructions. A short fixed block listing the answer fields is added after it.'
+    : 'Using the built-in instructions, shown greyed below. Type your own to replace them.';
+  $('#instrReset').disabled = !custom;
+  $('#instrCopy').disabled = custom || !meta.triageDefault;
+}
+$('#instrCopy').onclick = () => {
+  $('#instr').value = meta.triageDefault || '';
+  $('#instr').focus();
+  $('#instr').setSelectionRange(0, 0);
+};
+$('#instrReset').onclick = async () => {
+  if (!(await ask('Go back to the built-in triage instructions?', 'Your custom instructions will be removed.', 'Use default'))) return;
+  await save({ 'triage.instructions': '' });
+  $('#instr').value = '';
+};
+
+function renderLines() {
+  const box = $('#lines');
+  box.textContent = '';
+  const ls = meta.lines;
+  const firstOn = ls.find(l => l.active !== false);
+  for (const l of ls) {
+    const row = el('div', 'line');
+    row.appendChild(el('span', 'num', pretty(l.number)));
+    const label = el('input'); label.type = 'text'; label.value = l.label || ''; label.placeholder = 'Label';
+    label.onchange = () => lineAct({ number: l.number, label: label.value });
+    row.appendChild(label);
+    if (l === firstOn) row.appendChild(el('span', 'pill', 'Primary'));
+    else if (l.active !== false) {
+      const b = el('button', '', 'Make primary');
+      b.onclick = () => lineAct({ number: l.number, primary: true });
+      row.appendChild(b);
+    }
+    const sw = el('label', 'sw'); const cb = el('input'); cb.type = 'checkbox'; cb.checked = l.active !== false;
+    cb.onchange = () => lineAct({ number: l.number, active: cb.checked });
+    sw.append(cb, el('i')); sw.title = cb.checked ? 'Enabled' : 'Disabled';
+    row.appendChild(sw);
+    const rm = el('button', 'danger', '×'); rm.title = 'Remove from this app';
+    rm.onclick = async () => { if (await ask('Remove ' + pretty(l.number) + ' from this app?', 'Nothing changes on your provider\'s side.', 'Remove')) lineAct({ number: l.number, remove: true }); };
+    if (ls.length > 1) row.appendChild(rm);
+    box.appendChild(row);
+  }
+}
+
+async function lineAct(body) {
+  try { const j = await api('/api/lines', body); meta.lines = j.lines; renderLines(); toast('Saved'); }
+  catch (e) { toast(e.message, true); renderLines(); }
+}
+
+// Sound pickers: built-in presets from sounds.js, plus the custom file if one
+// has been chosen for that slot.
+function fillSounds() {
+  const snd = window.switchboardSounds;
+  if (!snd) return;
+  const fill = (sel, presets, { custom, extra = [] }) => {
+    sel.textContent = '';
+    for (const [v, label] of extra) { const o = el('option', '', label); o.value = v; sel.appendChild(o); }
+    for (const [v, label] of Object.entries(presets)) { const o = el('option', '', label); o.value = v; sel.appendChild(o); }
+    if (custom) { const o = el('option', '', 'Custom — ' + custom.replace(/^custom-\w+/, 'your file')); o.value = 'custom'; sel.appendChild(o); }
+  };
+  fill($('#ringSel'), snd.RING, { custom: S.sounds.ringtoneFile });
+  fill($('#msgSel'), snd.MSG, { custom: S.sounds.messageFile, extra: [['none', 'None']] });
+  fill($('#urgSel'), snd.MSG, { custom: S.sounds.urgentFile, extra: [['same', 'Same as message sound'], ['none', 'None']] });
+}
+
+// Without a signed-in account (phone only, or not signed in yet) the message,
+// triage and download settings have nothing to act on, so they're hidden. An
+// older server sends no profile: show everything.
+const platformOn = () => !meta?.profile || meta.profile.platform !== false;
+function applyProfile() {
+  for (const n of document.querySelectorAll('[data-platform]')) n.hidden = !platformOn();
+  // Low-priority / urgent handling and the Triage start page only exist while
+  // triage runs; with it off, messages are just "new message".
+  const triageOn = S?.triage?.enabled === true;
+  for (const n of document.querySelectorAll('[data-triage]')) n.hidden = !triageOn || (n.hasAttribute('data-platform') && !platformOn());
+  // A start page that isn't available shows as where the app lands instead
+  // (Messages, or Contacts without an account). Only displayed; the saved
+  // choice is left alone.
+  const sp = $('#startPage');
+  if (sp && S) sp.value = S.general.startPage;           // the real choice, before any fallback
+  if (sp?.selectedOptions[0]?.hidden) sp.value = platformOn() ? '/messages' : '/contacts';
+}
+
+// One line for the Account & phone row: servers, account login, device.
+function accountSummary() {
+  const a = meta.account || {}, p = meta.profile;
+  const parts = [];
+  if (p) parts.push(p.step === 'server' ? 'Servers not set' : 'Servers set');
+  if (p?.phoneOnly) parts.push('Phone only');
+  else if (p ? p.platform : a.login?.set) parts.push(a.login?.username ? 'Signed in as ' + a.login.username : 'Signed in');
+  else parts.push('Not signed in');
+  parts.push(a.device?.set ? 'Device set up as ' + a.device.username : 'Device not set up');
+  return parts.join(' · ');
+}
+
+function render() {
+  applyProfile();
+  fillSounds();
+  renderAi();
+  for (const inp of document.querySelectorAll('[data-k]')) {
+    const v = getK(inp.dataset.k);
+    if (inp.type === 'checkbox') inp.checked = !!v;
+    else inp.value = String(v);
+  }
+  applyProfile();                  // again, now the values are in (start page fallback)
+  for (const b of $('#theme').children) b.classList.toggle('on', b.dataset.v === S.general.theme);
+  $('#folder').textContent = S.downloads.folder || ((meta.host?.downloadsDefault || 'Downloads\\Switchboard Photos') + '  (default)');
+  const host = meta.host;
+  $('#loginItem').checked = !!host?.loginItem;
+  $('#loginItem').disabled = !host;
+  $('#pick').disabled = $('#openFolder').disabled = $('#mkShortcut').disabled = !host;
+  const a = meta.account || {};
+  $('#acctState').textContent = accountSummary();
+  $('#sipState').textContent = a.device?.set ? 'Set up as ' + a.device.username : 'Not set up yet.';
+  $('#about').textContent = 'Version ' + meta.version + ' · ' + meta.appFolder;
+  renderInstr();
+  renderLines();
+  applyDeps();
+}
+
+// ---- wiring --------------------------------------------------------------------
+for (const inp of document.querySelectorAll('[data-k]')) {
+  inp.addEventListener('change', () => {
+    let v = inp.type === 'checkbox' ? inp.checked : inp.value;
+    if ('num' in inp.dataset) v = Number(v);
+    save({ [inp.dataset.k]: v }, { phoneReload: 'phone' in inp.dataset });
+  });
+}
+// The background reacts at once (here and in every other open page) rather
+// than on the next page load.
+$('#animBg').addEventListener('change', () => window.switchboardBg?.set($('#animBg').checked));
+for (const b of $('#theme').children) {
+  b.onclick = () => { applyTheme(b.dataset.v); save({ 'general.theme': b.dataset.v }).then(render); };
+}
+$('#loginItem').onchange = async () => {
+  try { const j = await api('/api/settings/action', { action: 'loginItem', value: $('#loginItem').checked });
+        $('#loginItem').checked = j.loginItem; toast('Saved'); }
+  catch (e) { toast(e.message, true); }
+};
+// Test a local address; save it only once it answers.
+for (const [input, btn, key] of [['#lmUrl', '#lmTest', 'triage.lmStudioUrl'], ['#olUrl', '#olTest', 'ai.ollamaUrl']]) {
+  $(btn).onclick = async () => {
+    const url = $(input).value.trim();
+    const ok = await testing($(btn), async () => 'Connected — ' + (await fetchModels(url)) + '.');
+    if (ok && url !== getK(key)) await save({ [key]: url });
+  };
+  $(input).onchange = () => $(btn).click();
+}
+$('#pick').onclick = async () => {
+  try { const j = await api('/api/settings/action', { action: 'pickFolder' }); S.downloads.folder = j.folder; render(); toast('Saved'); }
+  catch (e) { toast(e.message, true); }
+};
+$('#openFolder').onclick = () => api('/api/settings/action', { action: 'openFolder' }).catch(e => toast(e.message, true));
+$('#mkShortcut').onclick = async () => {
+  try { await api('/api/settings/action', { action: 'createShortcut' }); toast('Shortcut added to your desktop'); }
+  catch (e) { toast(e.message, true); }
+};
+$('#clearCache').onclick = async () => {
+  try { await api('/api/settings/action', { action: 'clearCache' }); toast('Refreshing in the background'); }
+  catch (e) { toast(e.message, true); }
+};
+$('#reset').onclick = async () => {
+  if (!(await ask('Reset all settings to their defaults?', 'Lines, contacts and logins are kept.', 'Reset'))) return;
+  try { const j = await api('/api/settings/action', { action: 'reset' }); S = j.settings; applyTheme(S.general.theme);
+        phone.postMessage({ type: 'reload' }); render(); window.switchboardNav?.refresh(); toast('Settings reset'); }
+  catch (e) { toast(e.message, true); }
+};
+$('#addLine').onclick = async () => {
+  const num = $('#newNum').value.trim();
+  if (digits(num).length < 10) { toast('Enter a full phone number', true); return; }
+  const d = digits(num);
+  await lineAct({ add: true, number: '+' + (d.length === 10 ? '1' + d : d), label: $('#newLabel').value.trim() });
+  $('#newNum').value = ''; $('#newLabel').value = '';
+};
+
+// ---- sounds ------------------------------------------------------------------------
+const resolveUrgent = () => S.sounds.urgent === 'same'
+  ? { name: S.sounds.message, file: S.sounds.messageFile }
+  : { name: S.sounds.urgent, file: S.sounds.urgentFile };
+$('#ringPlay').onclick = () => window.switchboardSounds?.previewRing({ name: S.sounds.ringtone, file: S.sounds.ringtoneFile, volume: S.phone.ringVolume });
+$('#msgPlay').onclick = () => window.switchboardSounds?.play({ name: S.sounds.message, file: S.sounds.messageFile, volume: S.sounds.messageVolume });
+$('#urgPlay').onclick = () => window.switchboardSounds?.play({ ...resolveUrgent(), volume: S.sounds.messageVolume });
+for (const [btn, slot] of [['#ringPick', 'ringtone'], ['#msgPick', 'message'], ['#urgPick', 'urgent']]) {
+  $(btn).onclick = async () => {
+    try {
+      const j = await api('/api/settings/action', { action: 'pickSound', value: slot });
+      if (j.cancelled) return;
+      S = j.settings; render(); toast('Sound saved');
+    } catch (e) { toast(e.message, true); }
+  };
+}
+$('#testMsg').onclick = () => api('/api/settings/action', { action: 'testNotify', value: 'normal' }).then(() => toast('Sent')).catch(e => toast(e.message, true));
+$('#testUrg').onclick = () => api('/api/settings/action', { action: 'testNotify', value: 'urgent' }).then(() => toast('Sent')).catch(e => toast(e.message, true));
+
+(async () => {
+  let j;
+  try { j = await api('/api/settings'); }
+  catch (e) {
+    $('#blocked').hidden = false;
+    for (const i of document.querySelectorAll('main input, main select, main button')) i.disabled = true;
+    return;
+  }
+  S = j.settings; meta = j;
+  render();
+  fillModels([]);
+  // Model list from the AI platform in the background — the page shouldn't wait
+  // on it. Skipped while the AI section is hidden (no account).
+  if (platformOn() && (!cloud(prov()) || meta.account.ai?.[prov()])) loadModels();
+})();
+</script>
+<script src="/dialpad.js"></script>

@@ -1,0 +1,10 @@
+{
+  "_comment": "Lines this bot services. First entry is primary (used for sends when a message has no localNumber). ",
+  "lines": [
+    {
+      "number": "+15555550100",
+      "label": "primary",
+      "active": true
+    }
+  ]
+}

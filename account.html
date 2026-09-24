@@ -1,0 +1,842 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Account</title>
+<style>
+:root{
+  --bg:#f6f7f9; --panel:#fff; --ink:#14171c; --muted:#6b7480; --line:#e3e6ea;
+  --accent:#2f6df6; --urgent:#d93025; --high:#e8710a; --ok:#1a7f37;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){
+  --bg:#0f1216; --panel:#171b21; --ink:#e6e9ee; --muted:#8b95a1; --line:#252b33;
+  --accent:#5b8dff; --urgent:#ff6b5e; --high:#ffa04d; --ok:#4ade80;
+}}
+:root[data-theme=dark]{
+  --bg:#0f1216; --panel:#171b21; --ink:#e6e9ee; --muted:#8b95a1; --line:#252b33;
+  --accent:#5b8dff; --urgent:#ff6b5e; --high:#ffa04d; --ok:#4ade80;
+}
+:root{color-scheme:light dark}
+:root[data-theme=light]{color-scheme:light}
+:root[data-theme=dark]{color-scheme:dark}
+*{box-sizing:border-box}
+[hidden]{display:none !important}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font:14px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+/* Nothing shows until the first /api/account answer picks the mode, so the
+   editor never flashes up before the wizard. */
+body:not(.loaded) main{visibility:hidden}
+header{position:sticky;top:0;z-index:5;background:var(--panel);border-bottom:1px solid var(--line)}
+.bar{display:flex;align-items:center;gap:10px;padding:10px 16px;flex-wrap:wrap}
+/* Setup mode has no sidebar: line the title up with the centred column. */
+body.setup .bar{max-width:640px;margin:0 auto}
+h1{font-size:15px;margin:0;font-weight:650}
+.grow{flex:1}
+button,input{font:inherit;color:var(--ink)}
+button{border:1px solid var(--line);background:var(--panel);padding:7px 13px;border-radius:7px;cursor:pointer}
+button:hover{border-color:var(--accent)}
+button:disabled{opacity:.5;cursor:not-allowed}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+button.quiet{border-color:transparent;color:var(--muted)}
+button.quiet:hover{color:var(--urgent);border-color:var(--urgent)}
+button.bad{border-color:var(--urgent);color:var(--urgent)}
+main{padding:20px 16px 48px;max-width:640px;margin:0 auto;display:grid;gap:16px}
+section{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px 20px}
+h2{font-size:15px;margin:0;font-weight:650}
+.sub{color:var(--muted);font-size:13px;margin:6px 0 4px}
+label{display:block;font-size:12.5px;color:var(--muted);margin:12px 0 4px}
+.req{color:var(--urgent);margin-left:2px}
+input{width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:8px;background:var(--bg)}
+input:focus{outline:2px solid var(--accent);outline-offset:-1px;border-color:transparent}
+input[aria-invalid=true]{border-color:var(--urgent)}
+.hint{font-size:12px;color:var(--muted);margin:4px 0 0;line-height:1.45}
+.inline{display:flex;gap:8px}
+.inline input{flex:1;min-width:0}
+.inline button{flex:none}
+.row{display:flex;gap:10px;align-items:center;margin-top:16px;flex-wrap:wrap}
+.state{display:inline-flex;align-items:center;gap:7px;font-size:13px;padding:4px 10px;border-radius:999px;
+  border:1px solid var(--line);max-width:100%}
+.state .d{width:8px;height:8px;border-radius:50%;background:var(--muted);flex:none}
+.state.ok{border-color:var(--ok)} .state.ok .d{background:var(--ok)}
+.state.warn{border-color:var(--high)} .state.warn .d{background:var(--high)}
+.state.bad{border-color:var(--urgent)} .state.bad .d{background:var(--urgent)}
+.msg{font-size:13px}
+.msg.err{color:var(--urgent)} .msg.ok{color:var(--ok)}
+p.msg{margin:6px 0 0}
+p.msg:empty{margin:0}
+details{margin-top:12px}
+summary{cursor:pointer;color:var(--muted);font-size:13px}
+.note{font-size:12.5px;color:var(--muted);line-height:1.55}
+.blocked{border-color:var(--urgent)}
+
+/* Section heading: step number, title, state pill. */
+.head{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.num{width:24px;height:24px;border-radius:50%;flex:none;display:inline-flex;align-items:center;justify-content:center;
+  font-size:12px;font-weight:700;border:1px solid var(--line);color:var(--muted)}
+body.setup section.is-open .num{background:var(--accent);border-color:var(--accent);color:#fff}
+body.setup section.is-done .num{border-color:var(--ok);color:var(--ok)}
+body.setup section.is-locked{opacity:.55}
+.sum{display:flex;align-items:center;gap:10px;margin-top:10px}
+.sumtxt{flex:1;min-width:0;color:var(--muted);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* Setup wizard. */
+.intro{margin:0;color:var(--muted);font-size:13.5px}
+.stepper{list-style:none;margin:0;padding:0;display:flex;gap:8px}
+.stepper li{flex:1;min-width:0;display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:12px;
+  background:var(--panel);border:1px solid var(--line);
+  -webkit-backdrop-filter:blur(22px) saturate(170%);backdrop-filter:blur(22px) saturate(170%)}
+.stepper .n{width:24px;height:24px;border-radius:50%;flex:none;display:inline-flex;align-items:center;justify-content:center;
+  font-size:12px;font-weight:700;border:1px solid var(--line);color:var(--muted)}
+.stepper .t{min-width:0}
+.stepper b{display:block;font-size:13px;font-weight:600}
+.stepper small{display:block;font-size:11.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.stepper small:empty{display:none}
+.stepper li.cur{border-color:var(--accent)}
+.stepper li.cur .n{background:var(--accent);border-color:var(--accent);color:#fff}
+.stepper li.done .n{border-color:var(--ok);color:var(--ok)}
+.stepper li.fail .n{border-color:var(--urgent);color:var(--urgent)}
+.stepper li.todo, .stepper li.skip{color:var(--muted)}
+@media (max-width:560px){.stepper{flex-direction:column}}
+
+/* In-page confirm, same as Settings. Native confirm() in Electron can leave
+   the page's inputs dead until a reload. */
+.ask{position:fixed;inset:0;z-index:950;display:flex;align-items:center;justify-content:center;padding:16px;
+  background:rgba(5,8,14,.45);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
+.ask-box{width:420px;max-width:100%;background:var(--menu,var(--panel));color:var(--ink);border:1px solid var(--line);
+  border-radius:16px;padding:18px 20px;box-shadow:0 20px 60px rgba(0,0,0,.45)}
+.ask-box b{display:block;font-size:15px;margin-bottom:6px}
+.ask-box p{margin:0 0 16px;color:var(--muted);font-size:13px;line-height:1.55;white-space:pre-line}
+.ask-box div{display:flex;justify-content:flex-end;gap:8px}
+</style>
+
+<script src="/nav.js"></script>
+<header>
+  <div class="bar">
+    <h1 id="title">Account</h1>
+    <span class="grow"></span>
+  </div>
+</header>
+
+<main>
+  <p class="intro" id="intro" hidden>Connect Switchboard to your phone service. You'll need the server addresses and
+    logins your provider gave you.</p>
+
+  <nav id="progress" aria-label="Setup progress" hidden>
+    <ol class="stepper">
+      <li><span class="n" aria-hidden="true">1</span><span class="t"><b>Servers</b><small></small></span></li>
+      <li><span class="n" aria-hidden="true">2</span><span class="t"><b>Account login</b><small></small></span></li>
+      <li><span class="n" aria-hidden="true">3</span><span class="t"><b>Phone device</b><small></small></span></li>
+    </ol>
+  </nav>
+
+  <p class="msg err" id="pageMsg" role="alert" hidden></p>
+
+  <section id="blocked" class="blocked" hidden>
+    <h2>Open this in the desktop app</h2>
+    <p class="note">Credentials can only be viewed or changed from the Switchboard app window, not from a browser.
+      Start it with <b>Switchboard.bat</b>.</p>
+  </section>
+
+  <!-- 1 Servers -->
+  <section id="srvSec" aria-labelledby="srvH">
+    <div class="head">
+      <span class="num" aria-hidden="true">1</span>
+      <h2 id="srvH">Servers</h2>
+      <span class="grow"></span>
+      <span class="state" id="srvState"><span class="d"></span><span></span></span>
+    </div>
+    <p class="sub">The addresses of your phone service. Your provider gives you these.</p>
+    <div class="sum" hidden><span class="sumtxt"></span>
+      <button type="button" class="edit" aria-label="Edit servers">Edit</button></div>
+    <form id="srvForm" autocomplete="off" novalidate>
+      <label for="realm">SIP realm / domain<span class="req" aria-hidden="true">*</span></label>
+      <input id="realm" required spellcheck="false" autocapitalize="off" placeholder="sip.example.com">
+
+      <label for="ws">WebSocket server<span class="req" aria-hidden="true">*</span></label>
+      <div class="inline">
+        <input id="ws" required spellcheck="false" autocapitalize="off" inputmode="url"
+          placeholder="wss://sip.example.com:7443" aria-describedby="wsHint">
+        <button type="button" id="wsTest">Test</button>
+      </div>
+      <p class="hint" id="wsHint">SIP over WebSocket. Test checks this PC can reach it.</p>
+      <p class="msg" id="wsMsg" role="status"></p>
+
+      <label for="stun">STUN server</label>
+      <input id="stun" spellcheck="false" autocapitalize="off" placeholder="stun:stun.example.com:3478"
+        aria-describedby="stunHint">
+      <p class="hint" id="stunHint">Optional. Helps calls get through home routers.</p>
+
+      <label for="api">API server</label>
+      <input id="api" spellcheck="false" autocapitalize="off" inputmode="url" placeholder="https://api.example.com"
+        aria-describedby="apiHint">
+      <p class="hint" id="apiHint">Optional. Leave blank to use Switchboard as a phone only.</p>
+
+      <details id="srvAdv">
+        <summary>Advanced</summary>
+        <p class="hint">Only used with an API server. Leave these blank unless you were given separate addresses.</p>
+        <label for="events">Events server</label>
+        <input id="events" spellcheck="false" autocapitalize="off" inputmode="url" aria-describedby="eventsHint">
+        <p class="hint" id="eventsHint">Live updates (wss://). Blank means new messages are picked up by checking every so often.</p>
+        <label for="messaging">Messaging server</label>
+        <input id="messaging" spellcheck="false" autocapitalize="off" inputmode="url" aria-describedby="messagingHint">
+        <p class="hint" id="messagingHint">Where texts are sent (https://). Blank uses the API server.</p>
+        <label for="media">Media server</label>
+        <input id="media" spellcheck="false" autocapitalize="off" inputmode="url" aria-describedby="mediaHint">
+        <p class="hint" id="mediaHint">Where picture messages come from (https://). Blank works it out from the messaging server.</p>
+      </details>
+
+      <div class="row">
+        <button class="primary" type="submit" id="srvGo">Save</button>
+        <button type="button" class="cancel" hidden>Cancel</button>
+        <span class="msg" id="srvMsg" role="status"></span>
+      </div>
+    </form>
+  </section>
+
+  <!-- 2 Account login (only with an API server) -->
+  <section id="loginSec" aria-labelledby="loginH">
+    <div class="head">
+      <span class="num" aria-hidden="true">2</span>
+      <h2 id="loginH">Account login</h2>
+      <span class="grow"></span>
+      <span class="state" id="loginState"><span class="d"></span><span></span></span>
+    </div>
+    <p class="sub">Your account on the API server. Used to read and send your messages, calls and voicemail.</p>
+    <p class="msg err" id="loginErr" role="alert" hidden></p>
+    <div class="sum" hidden><span class="sumtxt"></span>
+      <button type="button" class="edit" aria-label="Edit account login">Edit</button></div>
+    <form id="loginForm" autocomplete="off" novalidate>
+      <label for="lu">Username<span class="req" aria-hidden="true">*</span></label>
+      <input id="lu" required autocomplete="username" spellcheck="false" autocapitalize="off">
+      <label for="lp">Password<span class="req" aria-hidden="true">*</span></label>
+      <input id="lp" required type="password" autocomplete="current-password">
+      <p class="hint" id="loginSkip" hidden>No account login? Edit Servers and leave the API server blank to use
+        Switchboard as a phone only.</p>
+      <div class="row">
+        <button class="primary" type="submit" id="loginGo">Sign in</button>
+        <button type="button" class="cancel" hidden>Cancel</button>
+        <span class="msg" id="loginMsg" role="status"></span>
+        <span class="grow"></span>
+        <button class="quiet" type="button" id="loginOut">Sign out</button>
+      </div>
+    </form>
+  </section>
+
+  <!-- 3 Phone device -->
+  <section id="devSec" aria-labelledby="devH">
+    <div class="head">
+      <span class="num" aria-hidden="true">3</span>
+      <h2 id="devH">Phone device</h2>
+      <span class="grow"></span>
+      <span class="state" id="devState"><span class="d"></span><span></span></span>
+    </div>
+    <p class="sub">The SIP device this app registers as to make and take calls (a WebRTC / browser phone device).</p>
+    <div class="sum" hidden><span class="sumtxt"></span>
+      <button type="button" class="edit" aria-label="Edit phone device">Edit</button></div>
+    <form id="devForm" autocomplete="off" novalidate>
+      <label for="du">SIP username<span class="req" aria-hidden="true">*</span></label>
+      <input id="du" required spellcheck="false" autocapitalize="off" autocomplete="off">
+      <label for="dp">SIP password<span class="req" aria-hidden="true" id="dpReq">*</span></label>
+      <input id="dp" type="password" autocomplete="new-password">
+      <details id="devAdv">
+        <summary>Advanced</summary>
+        <label for="da">Authorization username</label>
+        <input id="da" spellcheck="false" autocapitalize="off" autocomplete="off" aria-describedby="daHint">
+        <p class="hint" id="daHint">Only if your provider gave you a separate auth ID.</p>
+      </details>
+      <div class="row">
+        <button class="primary" type="submit" id="devGo">Save</button>
+        <button type="button" class="cancel" hidden>Cancel</button>
+        <span class="msg" id="devMsg" role="status"></span>
+        <span class="grow"></span>
+        <button class="quiet" type="button" id="devForget">Forget</button>
+      </div>
+    </form>
+  </section>
+
+  <section>
+    <h2>How these are stored</h2>
+    <p class="note">Encrypted on this PC with Windows' own protection, so only your Windows account can read them.
+      Passwords are never shown again after you save them. To change one, type a new one; leave it blank to keep
+      the saved one. Server addresses aren't secret and are kept in the app folder.</p>
+    <p class="note">Calls placed from this app are real calls on your line. Keep your provider's own app or a desk
+      phone working as a backup, especially for 911, until you're confident in this one.</p>
+  </section>
+
+  <section id="danger" hidden>
+    <h2>Start over</h2>
+    <p class="sub">Removes the servers, account login and phone device from this PC and opens setup again.
+      Your settings and AI keys are kept.</p>
+    <div class="row">
+      <button type="button" class="bad" id="reset">Start over&hellip;</button>
+      <span class="msg" id="resetMsg" role="status"></span>
+    </div>
+  </section>
+</main>
+
+<div class="ask" id="ask" hidden role="dialog" aria-modal="true" aria-labelledby="askT">
+  <div class="ask-box"><b id="askT"></b><p id="askP"></p>
+    <div><button id="askNo">Cancel</button><button class="primary" id="askYes">Continue</button></div></div>
+</div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+try { const t = localStorage.getItem('theme'); if (t) document.documentElement.dataset.theme = t; } catch {}
+// The layout changes with the mode (Start over reloads into the shorter wizard),
+// so a restored scroll position would land mid-page.
+try { history.scrollRestoration = 'manual'; } catch {}
+
+// Everything the server sends is written with textContent only.
+const STEPS = ['server', 'login', 'device'];
+const SEC = { server: $('#srvSec'), login: $('#loginSec'), device: $('#devSec') };
+const MSG = { server: '#srvMsg', login: '#loginMsg', device: '#devMsg' };
+const FIELDS = { realm: '#realm', wsServer: '#ws', stun: '#stun', apiServer: '#api',
+                 eventsServer: '#events', messagingServer: '#messaging', mediaServer: '#media' };
+const BLOCKED = 'blocked';
+
+let acct = null;          // last /api/account payload
+let setup = false;        // wizard mode, decided once per page load
+let open = null;          // wizard: the step whose form is showing
+let gen = 0;              // bumps on every applied POST, so an older background refresh can't undo it
+let finishing = false;
+
+const part = (sec, sel) => sec.querySelector(sel);
+const hasApi = () => !!acct?.server.apiServer;
+const host = (u) => { try { return new URL(u).host || u; } catch { return u; } };
+
+function setState(id, cls, text) {
+  const el = $(id);
+  el.className = 'state ' + (cls || '');
+  el.lastElementChild.textContent = text;
+}
+function msg(id, cls, text) { const el = $(id); el.className = 'msg ' + (cls || ''); el.textContent = text; }
+function pageMsg(text) { $('#pageMsg').textContent = text || ''; $('#pageMsg').hidden = !text; }
+
+// Tolerate a partial payload rather than throwing mid-render.
+function norm(a) {
+  a = a || {};
+  a.server = { ...(a.server || {}) };
+  a.server.derived = a.server.derived || {};
+  a.login = { ...(a.login || {}) };
+  a.device = { ...(a.device || {}) };
+  if (a.step !== null && !STEPS.includes(a.step)) a.step = null;
+  return a;
+}
+
+async function getAccount() {
+  const r = await fetch('/api/account', { cache: 'no-store' });
+  if (r.status === 403) return BLOCKED;
+  const j = await r.json().catch(() => null);
+  if (!r.ok || !j) throw new Error((j && j.error) || 'HTTP ' + r.status);
+  return norm(j);
+}
+
+async function post(body) {
+  let r;
+  try {
+    r = await fetch('/api/account', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body) });
+  } catch { throw new Error('Could not reach Switchboard. Is it still running?'); }
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok || j.error) {
+    const e = new Error(j.error || 'Something went wrong (HTTP ' + r.status + ').');
+    e.status = r.status;     // 409 on login: the servers or sign-in changed meanwhile
+    throw e;
+  }
+  return j;
+}
+
+// Promise-based confirm drawn in the page (see .ask in the styles).
+function ask(title, body = '', yes = 'Continue') {
+  return new Promise((resolve) => {
+    const box = $('#ask');
+    $('#askT').textContent = title;
+    $('#askP').textContent = body;
+    $('#askYes').textContent = yes;
+    box.hidden = false;
+    const done = (v) => {
+      box.hidden = true;
+      document.removeEventListener('keydown', key, true);
+      $('#askYes').onclick = $('#askNo').onclick = box.onclick = null;
+      resolve(v);
+    };
+    const key = (e) => { if (e.key === 'Escape') { e.preventDefault(); done(false); } };
+    document.addEventListener('keydown', key, true);
+    $('#askYes').onclick = () => done(true);
+    $('#askNo').onclick = () => done(false);
+    box.onclick = (e) => { if (e.target === box) done(false); };
+    $('#askNo').focus();
+  });
+}
+
+// ---- phone window ---------------------------------------------------------------
+// Registration state comes live from the phone window over a same-origin channel.
+const phone = 'BroadcastChannel' in window ? new BroadcastChannel('switchboard-phone') : null;
+let phoneState = null, phoneQuiet = false, quietTimer = 0;
+function tellPhone(m) { try { phone?.postMessage(m); } catch {} }
+// Give the phone a few seconds to answer before calling it unresponsive.
+function awaitPhone() {
+  phoneState = null; phoneQuiet = false;
+  clearTimeout(quietTimer);
+  quietTimer = setTimeout(() => { phoneQuiet = true; renderPhone(); }, 3000);
+}
+if (phone) phone.onmessage = (e) => {
+  if (e.data?.type !== 'status') return;
+  phoneState = e.data; phoneQuiet = false; clearTimeout(quietTimer);
+  renderPhone();
+};
+
+function renderPhone() {
+  if (!acct) return;
+  const d = acct.device, p = phoneState, s = p?.state;
+  if (!d.set) { setState('#devState', '', 'Not set up'); return; }
+  const who = p?.username || d.username || '';
+  if (s === 'registered') setState('#devState', 'ok', who ? 'Connected as ' + who : 'Connected');
+  else if (s === 'connecting' || s === 'starting') setState('#devState', 'warn', 'Connecting…');
+  else if (s === 'failed') setState('#devState', 'bad', p.detail || 'Could not connect');
+  else if (s === 'offline') setState('#devState', 'bad', p.detail ? 'Offline: ' + p.detail : 'Offline');
+  else if (s === 'unconfigured') setState('#devState', 'warn', acct.server.set ? 'Saved — the phone hasn’t picked it up yet' : 'Waiting for the servers');
+  else if (s === 'disabled') setState('#devState', '', 'Phone is turned off in Settings');
+  else setState('#devState', 'warn', phoneQuiet ? 'Saved — phone window not responding' : 'Saved — checking the phone…');
+}
+
+// ---- rendering ------------------------------------------------------------------
+function fillServer() {
+  for (const [k, sel] of Object.entries(FIELDS)) $(sel).value = acct.server[k] || '';
+  if (acct.server.eventsServer || acct.server.messagingServer || acct.server.mediaServer) $('#srvAdv').open = true;
+  clearInvalid('server');
+}
+function fillLogin() {
+  $('#lu').value = acct.login.username || '';
+  $('#lp').value = '';
+  clearInvalid('login');
+}
+function fillDevice() {
+  $('#du').value = acct.device.username || '';
+  $('#dp').value = '';
+  $('#da').value = acct.device.authUsername || '';
+  if (acct.device.authUsername) $('#devAdv').open = true;
+  clearInvalid('device');
+}
+const FILL = { server: fillServer, login: fillLogin, device: fillDevice };
+
+function clearInvalid(name) {
+  for (const el of SEC[name].querySelectorAll('[aria-invalid]')) el.removeAttribute('aria-invalid');
+}
+function invalid(sel, name, text) {
+  const el = $(sel);
+  el.setAttribute('aria-invalid', 'true');
+  msg(MSG[name], 'err', text);
+  el.focus();
+}
+
+function focusFirst(name) {
+  const el = SEC[name] && part(SEC[name], 'form input');
+  if (el && !el.disabled) el.focus();
+}
+
+function placeholders() {
+  const d = acct.server.derived;
+  $('#events').placeholder = d.eventsServer || 'None — new messages are checked every so often';
+  $('#messaging').placeholder = d.messagingServer || 'Same as the API server';
+  $('#media').placeholder = d.mediaServer || 'Worked out from the messaging server';
+  $('#lp').placeholder = acct.login.set ? 'Saved — type to change' : '';
+  $('#dp').placeholder = acct.device.set ? 'Saved — type to change' : '';
+  $('#dp').required = !acct.device.set;
+  $('#dpReq').hidden = !!acct.device.set;
+}
+
+function pills() {
+  const s = acct.server, l = acct.login;
+  if (!s.set) setState('#srvState', '', 'Not set up');
+  else setState('#srvState', 'ok', s.apiServer ? 'Saved' : 'Saved — phone only');
+
+  if (l.connected) setState('#loginState', 'ok', l.username ? 'Signed in as ' + l.username : 'Signed in');
+  else if (l.error) setState('#loginState', 'bad', 'Not signed in');
+  else if (l.set) setState('#loginState', 'warn', 'Signing in…');
+  else setState('#loginState', '', 'Not signed in');
+  // A background sign-in that failed (e.g. after the API server changed).
+  const err = !l.connected && l.error ? 'Sign-in failed: ' + l.error : '';
+  $('#loginErr').textContent = err;
+  $('#loginErr').hidden = !err;
+
+  renderPhone();
+}
+
+function summaries() {
+  const s = acct.server, l = acct.login, d = acct.device;
+  const bits = [s.realm, host(s.wsServer)].filter(Boolean);
+  bits.push(s.apiServer ? 'account data from ' + host(s.apiServer) : 'phone only');
+  const txt = {
+    server: bits.join(' · '),
+    login: l.connected ? 'Signed in as ' + (l.username || 'your account')
+         : l.set ? 'Saved as ' + l.username : 'Not signed in',
+    device: d.username ? 'SIP username ' + d.username : 'Saved',
+  };
+  for (const name of STEPS) {
+    const el = part(SEC[name], '.sumtxt');
+    el.textContent = txt[name];
+    el.title = txt[name];
+  }
+}
+
+// Index of the first step still to do (3 = all done).
+const pending = () => (acct.step ? STEPS.indexOf(acct.step) : STEPS.length);
+
+function renderStepper() {
+  const cur = pending(), at = STEPS.indexOf(open);
+  // While the server form is open, step 2 follows what's typed in the API field.
+  const api = open === 'server' ? !!$('#api').value.trim() : hasApi();
+  // A saved login counts as done for the gate, but its sign-in may be failing.
+  const failed = !!acct.login.error && !acct.login.connected;
+  document.querySelectorAll('.stepper li').forEach((li, i) => {
+    const skip = i === 1 && !api;
+    const done = i < cur && (i !== 1 || hasApi());
+    const st = i === at ? 'cur' : skip ? 'skip' : done ? (i === 1 && failed ? 'fail' : 'done') : 'todo';
+    li.className = st;
+    if (st === 'cur') li.setAttribute('aria-current', 'step'); else li.removeAttribute('aria-current');
+    li.querySelector('.n').textContent = st === 'done' ? '✓' : st === 'skip' ? '–' : st === 'fail' ? '!' : String(i + 1);
+    li.querySelector('small').textContent = st === 'done' ? 'Done' : st === 'skip' ? 'Skipped — phone only'
+      : st === 'fail' ? 'Sign-in failed' : '';
+  });
+}
+
+function renderWizard() {
+  if (!STEPS.includes(open) || SEC[open].hidden) open = acct.step || 'device';
+  const cur = pending(), at = STEPS.indexOf(open);
+  STEPS.forEach((name, i) => {
+    const sec = SEC[name], isOpen = i === at, done = !isOpen && i < cur;
+    sec.classList.toggle('is-open', isOpen);
+    sec.classList.toggle('is-done', done);
+    sec.classList.toggle('is-locked', !isOpen && !done);
+    part(sec, 'form').hidden = !isOpen;
+    part(sec, '.sum').hidden = !done;
+    part(sec, '.sub').hidden = done;
+    // Editing a finished step: offer a way back to where the wizard was.
+    part(sec, '.cancel').hidden = !(isOpen && i < cur);
+    part(sec, '.num').textContent = done ? '✓' : String(i + 1);
+  });
+  $('#srvGo').textContent = 'Next';
+  $('#devGo').textContent = 'Finish';
+  $('#loginOut').hidden = true;
+  $('#devForget').hidden = true;
+  $('#loginSkip').hidden = false;
+  summaries();
+  renderStepper();
+}
+
+function renderNormal() {
+  let n = 0;
+  for (const name of STEPS) {
+    const sec = SEC[name];
+    sec.classList.remove('is-open', 'is-done', 'is-locked');
+    part(sec, 'form').hidden = false;
+    part(sec, '.sum').hidden = true;
+    part(sec, '.sub').hidden = false;
+    part(sec, '.cancel').hidden = true;
+    if (!sec.hidden) part(sec, '.num').textContent = String(++n);
+  }
+  $('#srvGo').textContent = 'Save';
+  $('#devGo').textContent = 'Save';
+  $('#loginOut').hidden = !(acct.login.set || acct.login.connected);
+  $('#devForget').hidden = !acct.device.set;
+  $('#loginSkip').hidden = true;
+}
+
+function render() {
+  if (!acct) return;
+  document.body.classList.toggle('setup', setup);
+  const title = setup ? 'Set up Switchboard' : 'Account';
+  $('#title').textContent = title;
+  document.title = title;
+  $('#intro').hidden = !setup;
+  $('#progress').hidden = !setup;
+  $('#danger').hidden = setup;
+  SEC.login.hidden = !hasApi();
+  pageMsg(acct.secureStorage === false
+    ? 'Secure storage isn’t available on this PC, so logins and passwords can’t be saved.' : '');
+  placeholders();
+  pills();
+  if (setup) renderWizard(); else renderNormal();
+}
+
+// Disable every control (403, load failure, or on the way out after Finish).
+function lock() {
+  for (const f of document.querySelectorAll('main form')) for (const el of f.elements) el.disabled = true;
+  for (const b of document.querySelectorAll('main .edit, #reset')) b.disabled = true;
+}
+
+function showBlocked() {
+  acct = null;
+  $('#blocked').hidden = false;
+  lock();
+  for (const id of ['#srvState', '#loginState', '#devState']) setState(id, '', 'Unavailable here');
+  document.body.classList.add('loaded');
+}
+
+// A successful POST answers { ok, account }: re-render from that.
+async function applied(j, name) {
+  gen++;
+  const a = j?.account ? norm(j.account) : await getAccount();
+  if (a === BLOCKED) { showBlocked(); return; }
+  acct = a;
+  FILL[name]();
+  if (name === 'server' && !hasApi()) fillLogin();   // the login is forgotten with the API server
+  if (!setup && acct.gate && !acct.ready) {
+    // Sign out, Forget or a new API server reopened setup: every other page now
+    // redirects here, so show the wizard at the step the server wants.
+    setup = true;
+    open = acct.step;
+    FILL[open]?.();
+    render();
+    focusFirst(open);
+    return;
+  }
+  if (!setup) { render(); return; }
+  if (acct.ready) { render(); finish(name); return; }
+  const was = open;
+  open = acct.step;
+  render();
+  if (open !== was) focusFirst(open);
+}
+
+// Setup is done: go to the start page. The server sends platform pages on to
+// /contacts when there's no account, so no need to second-guess it here.
+async function finish(name) {
+  finishing = true;
+  lock();
+  msg(MSG[name], 'ok', 'All set. Opening Switchboard…');
+  let dest = '/';
+  try {
+    const j = await (await fetch('/api/settings', { cache: 'no-store' })).json();
+    const p = j?.settings?.general?.startPage;
+    if (typeof p === 'string' && /^\/(?!\/)/.test(p)) dest = p;   // same-origin paths only
+  } catch {}
+  location.replace(dest);
+}
+
+// ---- load -----------------------------------------------------------------------
+async function load() {
+  let a;
+  try { a = await getAccount(); }
+  catch (err) {
+    pageMsg('Could not load your account settings (' + err.message + '). Reload to try again.');
+    lock();
+    document.body.classList.add('loaded');
+    return;
+  }
+  if (a === BLOCKED) { showBlocked(); return; }
+  acct = a;
+  setup = !!(a.gate && !a.ready);
+  open = setup ? a.step : null;
+  fillServer(); fillLogin(); fillDevice();
+  render();
+  document.body.classList.add('loaded');
+  if (setup) focusFirst(open);
+  watch();
+}
+
+// The server pushes `profile` on /api/events when anything here changes,
+// including a background sign-in finishing. Refresh state, never form values.
+function watch() {
+  try { new EventSource('/api/events').addEventListener('profile', refresh); } catch {}
+}
+let refreshing = false, again = false;
+async function refresh() {
+  if (!acct || finishing) return;
+  if (refreshing) { again = true; return; }   // run once more after this one, don't drop the event
+  refreshing = true;
+  const g = gen;
+  try {
+    const a = await getAccount();
+    if (a !== BLOCKED && !finishing && g === gen) { acct = a; render(); }
+  } catch {} finally {
+    refreshing = false;
+    if (again) { again = false; refresh(); }
+  }
+}
+
+// ---- servers --------------------------------------------------------------------
+$('#srvForm').onsubmit = async (e) => {
+  e.preventDefault();
+  if (!acct || finishing) return;
+  const server = {};
+  for (const [k, sel] of Object.entries(FIELDS)) server[k] = $(sel).value.trim();
+  clearInvalid('server');
+  if (!server.realm) return invalid('#realm', 'server', 'Enter the SIP realm (domain).');
+  if (!server.wsServer) return invalid('#ws', 'server', 'Enter the WebSocket server.');
+  const l = acct.login;
+  if (acct.server.apiServer && !server.apiServer && (l.set || l.connected) &&
+      !(await ask('Use Switchboard as a phone only?',
+        'Clearing the API server signs you out of your account and hides Messages, Calls, Voicemail, Photos, Triage and Insights.',
+        'Clear it'))) return;
+  const before = acct.server;
+  $('#srvGo').disabled = true; msg('#srvMsg', '', 'Saving…');
+  try {
+    const j = await post({ server });
+    const a = norm(j.account);
+    // The phone only cares about these three; don't drop its registration otherwise.
+    if (a.device.set && ['realm', 'wsServer', 'stun'].some(k => (a.server[k] || '') !== (before[k] || ''))) {
+      awaitPhone(); tellPhone({ type: 'reload' });
+    }
+    msg('#srvMsg', 'ok', 'Saved.');
+    await applied(j, 'server');
+  } catch (err) { msg('#srvMsg', 'err', err.message); }
+  finally { if (!finishing) $('#srvGo').disabled = false; }
+};
+
+// Editing a field flagged as missing clears the flag and its message.
+for (const name of STEPS) {
+  part(SEC[name], 'form').addEventListener('input', (e) => {
+    if (!e.target.hasAttribute('aria-invalid')) return;
+    e.target.removeAttribute('aria-invalid');
+    msg(MSG[name], '', '');
+  });
+}
+$('#api').addEventListener('input', () => { if (setup && acct) renderStepper(); });
+$('#ws').addEventListener('input', () => msg('#wsMsg', '', ''));
+
+// Reachability check from this page: a real SIP-over-WebSocket handshake.
+$('#wsTest').onclick = () => {
+  const url = $('#ws').value.trim();
+  if (!url) { msg('#wsMsg', 'err', 'Enter the WebSocket server first.'); $('#ws').focus(); return; }
+  if (!/^wss?:\/\//i.test(url)) { msg('#wsMsg', 'err', 'Use a wss:// address.'); return; }
+  let ws;
+  try { ws = new WebSocket(url, 'sip'); }
+  catch { msg('#wsMsg', 'err', 'That doesn’t look like a WebSocket address.'); return; }
+  $('#wsTest').disabled = true;
+  msg('#wsMsg', '', 'Testing…');
+  let done = false;
+  const end = (ok) => {
+    if (done) return;
+    done = true;
+    clearTimeout(timer);
+    ws.onopen = ws.onerror = ws.onclose = null;
+    try { ws.close(); } catch {}
+    $('#wsTest').disabled = false;
+    msg('#wsMsg', ok ? 'ok' : 'err', ok ? 'Reachable' : 'Could not connect');
+  };
+  const timer = setTimeout(() => end(false), 6000);
+  ws.onopen = () => end(true);
+  ws.onerror = ws.onclose = () => end(false);
+};
+
+// ---- account login --------------------------------------------------------------
+$('#loginForm').onsubmit = async (e) => {
+  e.preventDefault();
+  if (!acct || finishing) return;
+  const username = $('#lu').value.trim(), password = $('#lp').value;
+  clearInvalid('login');
+  if (!username) return invalid('#lu', 'login', 'Enter your username.');
+  // Same saved username and a blank password: retry with the saved password
+  // (the way back from a failed background sign-in).
+  const retry = acct.login.set && username === acct.login.username;
+  if (!password && !retry) return invalid('#lp', 'login', 'Enter your password.');
+  $('#loginGo').disabled = true; msg('#loginMsg', '', 'Checking…');
+  try {
+    const j = await post({ login: { username, password } });
+    $('#lp').value = '';
+    msg('#loginMsg', 'ok', 'Signed in.');
+    await applied(j, 'login');
+  } catch (err) {
+    if (err.status === 409) {
+      // The servers or saved login changed under this sign-in: show the new state.
+      msg('#loginMsg', 'err', 'The servers or sign-in changed while signing in. Try again.');
+      refresh();
+    } else msg('#loginMsg', 'err', err.message);
+  }
+  finally { if (!finishing) $('#loginGo').disabled = false; }
+};
+
+$('#loginOut').onclick = async () => {
+  if (!acct) return;
+  if (!(await ask('Sign out of your account?',
+      'Messages, calls and voicemail stay hidden until you sign in again — or clear the API server to use Switchboard as a phone only.',
+      'Sign out'))) return;
+  $('#loginOut').disabled = true;
+  try {
+    const j = await post({ forget: 'login' });
+    msg('#loginMsg', '', 'Signed out.');
+    await applied(j, 'login');
+  } catch (err) { msg('#loginMsg', 'err', err.message); }
+  finally { $('#loginOut').disabled = false; }
+};
+
+// ---- phone device ---------------------------------------------------------------
+$('#devForm').onsubmit = async (e) => {
+  e.preventDefault();
+  if (!acct || finishing) return;
+  const username = $('#du').value.trim(), password = $('#dp').value, authUsername = $('#da').value.trim();
+  clearInvalid('device');
+  if (!username) return invalid('#du', 'device', 'Enter the SIP username.');
+  if (!password && !acct.device.set) return invalid('#dp', 'device', 'Enter the SIP password.');
+  $('#devGo').disabled = true; msg('#devMsg', '', 'Saving…');
+  try {
+    const j = await post({ device: { username, password, authUsername } });
+    $('#dp').value = '';
+    awaitPhone();
+    tellPhone({ type: 'reload' });
+    msg('#devMsg', 'ok', 'Saved. Connecting…');
+    await applied(j, 'device');
+  } catch (err) { msg('#devMsg', 'err', err.message); }
+  finally { if (!finishing) $('#devGo').disabled = false; }
+};
+
+$('#devForget').onclick = async () => {
+  if (!acct) return;
+  if (!(await ask('Forget this phone device?',
+      'The SIP password can’t be shown again. Switchboard stays on this page until a phone device is saved again.',
+      'Forget'))) return;
+  $('#devForget').disabled = true;
+  try {
+    const j = await post({ forget: 'device' });
+    awaitPhone();
+    tellPhone({ type: 'reload' });
+    msg('#devMsg', '', 'Forgotten.');
+    await applied(j, 'device');
+  } catch (err) { msg('#devMsg', 'err', err.message); }
+  finally { $('#devForget').disabled = false; }
+};
+
+// ---- wizard: Edit / Cancel ------------------------------------------------------
+for (const name of STEPS) {
+  part(SEC[name], '.edit').onclick = () => {
+    if (!acct || finishing) return;
+    open = name;
+    FILL[name]();              // show what's saved, not an old half-edit
+    msg(MSG[name], '', '');
+    render();
+    focusFirst(name);
+  };
+  part(SEC[name], '.cancel').onclick = () => {
+    if (!acct || finishing) return;
+    msg(MSG[name], '', '');
+    open = acct.step;
+    render();
+    focusFirst(open);
+  };
+}
+
+// ---- start over -----------------------------------------------------------------
+$('#reset').onclick = async () => {
+  if (!acct) return;
+  if (!(await ask('Start over?',
+      'This removes the servers, account login and phone device saved on this PC, then opens setup again.\n\nYour settings and AI keys are kept.',
+      'Start over'))) return;
+  $('#reset').disabled = true;
+  msg('#resetMsg', '', 'Starting over…');
+  try {
+    await post({ reset: true });
+    tellPhone({ type: 'reload' });
+    // A beat for the channel message to go out before the page unloads.
+    setTimeout(() => location.reload(), 150);
+  } catch (err) {
+    msg('#resetMsg', 'err', err.message);
+    $('#reset').disabled = false;
+  }
+};
+
+awaitPhone();
+tellPhone({ type: 'ping' });
+load();
+</script>
+<script src="/dialpad.js"></script>

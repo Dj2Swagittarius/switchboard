@@ -1,0 +1,21 @@
+{
+  "name": "switchboard",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Personal desktop client for your phone lines: messages, calls, voicemail, contacts, photos, with local AI triage.",
+  "type": "module",
+  "main": "electron/main.mjs",
+  "scripts": {
+    "start": "electron .",
+    "smoke": "electron . --smoke",
+    "server": "node server.mjs"
+  },
+  "devDependencies": {
+    "electron": "^44.4.5"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.128.0",
+    "sip.js": "^0.21.1"
+  },
+  "productName": "Switchboard"
+}
