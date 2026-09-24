@@ -25,7 +25,7 @@ import { insights } from './lib/insights.mjs';
 import { threadFor, summarizeThread } from './lib/thread.mjs';
 import { listVoicemails, transcribeVoicemail, fetchVoicemailAudio } from './lib/voicemail.mjs';
 import { listCalls, fetchRecordingAudio, transcribeRecording, safeId } from './lib/calls.mjs';
-import { conversations, thread as convThread, fetchMedia, sendText, safeMediaId, uploadAttachment } from './lib/messaging.mjs';
+import { conversations, thread as convThread, fetchMedia, sendText, safeMediaId, uploadAttachment, deleteMedia } from './lib/messaging.mjs';
 import { photoIndex, fileName } from './lib/photos.mjs';
 import { zip } from './lib/zip.mjs';
 import { playable } from './lib/transcode.mjs';
@@ -318,7 +318,7 @@ const PLATFORM_PAGES = new Set(['/', '/index.html', '/messages', '/messages.html
 const GATED_PAGES = new Set([...PLATFORM_PAGES, '/contacts', '/contacts.html', '/settings', '/settings.html']);
 // Endpoints that only make sense with an account; without one they never call upstream.
 const PLATFORM_API = new Set(['/api/review/run', '/api/insights', '/api/conversations', '/api/conversation',
-  '/api/media', '/api/photos', '/api/photos/zip', '/api/messages/send', '/api/messages/upload', '/api/calls', '/api/recording/audio',
+  '/api/media', '/api/photos', '/api/photos/zip', '/api/messages/send', '/api/messages/upload', '/api/messages/delete', '/api/calls', '/api/recording/audio',
   '/api/recording/transcribe', '/api/voicemail/audio', '/api/voicemails', '/api/voicemail/transcribe',
   '/api/thread', '/api/sync', '/api/send', '/api/company', '/api/parked', '/api/fax', '/api/fax/pdf', '/api/fax/send']);
 // Device and authorization usernames go into SIP headers as-is.
@@ -331,6 +331,9 @@ const SOUND_TYPES = { '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.ogg': 'audio/
 const SOUND_MAX = 5 * 1024 * 1024;
 // A picture-message upload: a 2 MB file as base64 plus its PNG preview, with room to spare.
 const UPLOAD_MAX = 7e6;
+// File name endings for saving a message attachment that isn't in the photo index.
+const SAVE_EXT = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/gif': '.gif', 'video/mp4': '.mp4', 'video/3gpp': '.3gp',
+  'audio/wav': '.wav', 'audio/ogg': '.oga', 'audio/amr': '.amr', 'application/pdf': '.pdf' };
 
 // SIP.js ships as plain ES modules; serve its lib/ directory read-only.
 const SIPJS_ROOT = resolvePath(fileURLToPath(new URL('./node_modules/sip.js/lib/', import.meta.url)));
@@ -826,11 +829,14 @@ const server = createServer(async (req, res) => {
           return sendMedia(req, res, v, { 'X-Audio': v.audio || 'ok' });
         }
         const extra = {};
+        const v = await full();
         if (url.searchParams.get('download') === '1') {
           const meta = (await photoIndex(session).catch(() => [])).find(x => x.id === id);
-          extra['Content-Disposition'] = attachment(meta ? fileName(meta) : `photo_${id}.jpg`);
+          const type = String(v.type).split(';')[0].trim().toLowerCase();
+          extra['Content-Disposition'] = attachment(meta ? fileName(meta)
+            : (type.startsWith('image/') ? 'photo_' : 'attachment_') + id + (SAVE_EXT[type] ?? (type.startsWith('image/') ? '.jpg' : '')));
         }
-        return sendMedia(req, res, await full(), extra);
+        return sendMedia(req, res, v, extra);
       } catch (e) { return json(res, 502, { error: e.message }); }
     }
 
@@ -894,10 +900,26 @@ const server = createServer(async (req, res) => {
     // Sends as the user, so only the app's own windows may (as with faxes).
     if (p === '/api/messages/send' && req.method === 'POST') {
       if (!fromApp(req)) return json(res, 403, { error: 'Open this from the Switchboard app.' });
-      const { line, to, text, media = [] } = await readBody(req);
+      const { line, to, text, media = [], clientMsgId = null } = await readBody(req);
       try {
-        const r = await sendText(session, { line, to, text, media });
+        const r = await sendText(session, { line, to, text, media, clientMsgId });
         if (media.length) invalidate('photos:');
+        return json(res, 200, r);
+      } catch (e) { return json(res, 400, { error: e.message }); }
+    }
+
+    // Deletes a photo (or other attachment) from a conversation: JSON
+    // {line, remote, messageId, mediaId}. Only the app's own windows may.
+    if (p === '/api/messages/delete' && req.method === 'POST') {
+      if (!fromApp(req)) return json(res, 403, { error: 'Open this from the Switchboard app.' });
+      const { line, remote, messageId, mediaId } = await readBody(req);
+      try {
+        const r = await deleteMedia(session, { line, remote, messageId, mediaId });
+        for (const k of ['mms:', 'thumb:', 'play:']) {
+          const v = mediaCache.get(k + mediaId);
+          if (v) { mediaCache.delete(k + mediaId); mediaBytes -= v.buf.length; }
+        }
+        invalidate('photos:');
         return json(res, 200, r);
       } catch (e) { return json(res, 400, { error: e.message }); }
     }

@@ -62,6 +62,7 @@ select,input{border:1px solid var(--line);background:var(--bg);padding:6px 9px;b
 .badge{background:var(--accent);color:#fff;border-radius:999px;font-size:11px;font-weight:700;
   min-width:19px;height:19px;display:inline-flex;align-items:center;justify-content:center;padding:0 6px;flex:none}
 .ltag{font-size:10.5px;color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:0 6px;flex:none}
+.ltag.unsent{color:var(--urgent);border-color:var(--urgent)}
 
 .pane{flex:1;display:flex;flex-direction:column;min-width:0;min-height:0}
 .thead{display:flex;align-items:center;gap:10px;padding:10px 16px;border-bottom:1px solid var(--line);
@@ -110,6 +111,21 @@ textarea.locked{opacity:.55;cursor:progress}
 .att.busy{opacity:.7}
 .compose.drop{outline:2px dashed var(--accent);outline-offset:-4px}
 .compose.busy .att .x,.compose.busy .tool{pointer-events:none;opacity:.45}
+.bub.file{display:inline-block;color:inherit;text-decoration:none}
+.mbox{position:relative;display:inline-block;max-width:100%}
+.mdel{position:absolute;top:6px;right:6px;width:30px;height:30px;padding:0;border-radius:50%;font-size:14px;line-height:1;
+  opacity:0;transition:opacity .15s;background:rgba(0,0,0,.6) !important;border-color:transparent !important;color:#fff}
+.mbox:hover .mdel,.mdel:focus-visible{opacity:1}
+.mbox.inline{display:flex;align-items:center;gap:6px}
+.mbox.inline .mdel{position:static;opacity:.7;background:var(--bg) !important;color:var(--ink);border-color:var(--line) !important}
+dialog.ask{border:1px solid var(--line);border-radius:14px;background:var(--menu, var(--panel));color:var(--ink);
+  padding:18px 20px;max-width:380px;box-shadow:0 18px 50px rgba(0,0,0,.45)}
+dialog.ask::backdrop{background:rgba(5,8,14,.5)}
+dialog.ask h3{margin:0 0 8px;font-size:16px}
+dialog.ask p{margin:0 0 16px;color:var(--muted);font-size:13.5px;line-height:1.45}
+.askrow{display:flex;justify-content:flex-end;gap:8px}
+button.danger{background:var(--urgent) !important;border-color:var(--urgent) !important;color:#fff;font-weight:600}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 .cfoot{display:flex;gap:10px;align-items:center;margin-top:6px}
 .count{font-size:11.5px;color:var(--muted);font-variant-numeric:tabular-nums}
 .count.over{color:var(--urgent)}
@@ -197,7 +213,11 @@ let lines = [];            // [{number, label, active}]
 let convs = [];
 let open = null;           // {line, remote, name} | {compose:true}
 let openSig = '';
-let sending = false;
+// One composer per conversation (key 'line|remote', or 'new'), kept while the
+// page is open: a draft, its attachments and a send in progress survive
+// switching to another conversation and back.
+const composers = new Map();
+const unsent = new Set();  // composer keys whose last send failed
 
 // ---- lines ------------------------------------------------------------------
 async function loadLines() {
@@ -269,9 +289,11 @@ function renderConvs() {
     r1.appendChild(el('span', 'cname', c.name || pretty(c.remote)));
     r1.appendChild(el('span', 'ctime', when(c.lastAt)));
     const r2 = el('div', 'crow');
+    const what = mediaWord(c.last.mime);
     const prev = c.last.text ? (c.last.inbound ? '' : 'You: ') + c.last.text.replace(/\s+/g, ' ')
-      : c.last.media ? (c.last.inbound ? 'Photo' : 'You sent a photo') : '';
+      : c.last.media ? (c.last.inbound ? what[0].toUpperCase() + what.slice(1) : 'You sent a ' + what) : '';
     r2.appendChild(el('span', 'cprev', prev));
+    if (unsent.has(c.line + '|' + c.remote)) r2.appendChild(el('span', 'ltag unsent', 'Not sent'));
     if (multi) r2.appendChild(el('span', 'ltag', pretty(c.line).slice(-8)));
     if (c.unread) r2.appendChild(el('span', 'badge', String(c.unread)));
     body.append(r1, r2);
@@ -293,15 +315,34 @@ const MMS_TYPES = {
 };
 const ALIAS = { 'image/jpg': 'image/jpeg', 'image/pjpeg': 'image/jpeg', 'audio/x-wav': 'audio/wav', 'audio/wave': 'audio/wav',
   'audio/vnd.wave': 'audio/wav', 'video/x-m4v': 'video/mp4' };
-const BY_EXT = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.gif': 'image/gif', '.mp4': 'video/mp4',
-  '.m4v': 'video/mp4', '.wav': 'audio/wav', '.oga': 'audio/ogg', '.pdf': 'application/pdf' };
-const ACCEPT = 'image/*,video/mp4,.m4v,application/pdf,audio/wav,.wav,.oga';
+// For files Windows gives no type. Pictures that can't be sent as they are
+// are listed too, so they get converted (or the right advice).
+const BY_EXT = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.jfif': 'image/jpeg', '.png': 'image/png', '.gif': 'image/gif',
+  '.webp': 'image/webp', '.bmp': 'image/bmp', '.avif': 'image/avif', '.tif': 'image/tiff', '.tiff': 'image/tiff',
+  '.heic': 'image/heic', '.heif': 'image/heif', '.mp4': 'video/mp4', '.m4v': 'video/mp4', '.wav': 'audio/wav',
+  '.oga': 'audio/ogg', '.pdf': 'application/pdf' };
+const ACCEPT = 'image/*,.heic,.heif,video/mp4,.m4v,application/pdf,audio/wav,.wav,.oga';
+// What each sendable type's bytes start with (the server checks the same).
+const sig = (b, at, s) => [...s].every((ch, i) => b[at + i] === ch.charCodeAt(0));
+const MAGIC = {
+  'image/jpeg': (b) => b[0] === 0xff && b[1] === 0xd8,
+  'image/png': (b) => sig(b, 0, '\x89PNG\r\n\x1a\n'),
+  'image/gif': (b) => sig(b, 0, 'GIF8'),
+  'video/mp4': (b) => sig(b, 4, 'ftyp'),
+  'audio/wav': (b) => sig(b, 0, 'RIFF') && sig(b, 8, 'WAVE'),
+  'audio/ogg': (b) => sig(b, 0, 'OggS'),
+  'application/pdf': (b) => sig(b, 0, '%PDF-'),
+};
+const looksLike = async (file, type) => !!MAGIC[type]?.(new Uint8Array(await file.slice(0, 12).arrayBuffer()));
+// How the conversation list names an attachment-only message.
+const mediaWord = (mime = '') => mime === 'application/pdf' ? 'PDF' : mime.startsWith('video/') ? 'video'
+  : mime.startsWith('audio/') ? 'recording' : !mime || mime.startsWith('image/') ? 'photo' : 'file';
 const EDGE = 2048;          // longest side of a converted picture
 const ICON = { image: '🖼️', video: '🎬', audio: '🎵', application: '📄' };
 const extOf = (n) => { const i = n.lastIndexOf('.'); return i > 0 ? n.slice(i).toLowerCase() : ''; };
 const stem = (n) => { const i = n.lastIndexOf('.'); return (i > 0 ? n.slice(0, i) : n) || 'picture'; };
 const human = (n) => n >= 1e6 ? (n / 1e6).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1e3)) + ' KB';
-let dropInto = null;        // the on-screen composer's addFiles
+const overBy = (n) => (n / 1e6).toFixed(2) + ' MB';     // never shows 2.0 MB for a file over 2 MB
 
 // -> {name, type, blob, size, thumb (PNG data URL or null), kind, note}, or throws a message for the user.
 async function prepare(file) {
@@ -311,22 +352,24 @@ async function prepare(file) {
   if (type.startsWith('image/')) return prepareImage(file, type, ext);
   if (!MMS_TYPES[type]?.includes(ext)) throw new Error(`“${file.name}” can’t be sent by text. Pictures, MP4 videos, PDFs and WAV audio can.`);
   if (!file.size) throw new Error(`“${file.name}” is empty.`);
-  if (file.size > MMS_MAX) throw new Error(`“${file.name}” is ${human(file.size)}; the limit is 2 MB.` +
+  if (file.size > MMS_MAX) throw new Error(`“${file.name}” is ${overBy(file.size)}; the limit is 2 MB.` +
     (type === 'video/mp4' ? ' Trim or compress the video first.' : ''));
+  if (!(await looksLike(file, type))) throw new Error(`“${file.name}” doesn’t look like a real ${ext.slice(1).toUpperCase()} file.`);
   const thumb = type === 'video/mp4' ? await videoThumb(file) : null;
   return { name: file.name, type, blob: file, size: file.size, thumb, kind: type.split('/')[0], note: '' };
 }
 
 async function prepareImage(file, type, ext) {
+  // As is only if name, type and bytes agree (a WebP saved as .jpg gets converted).
   const asIs = ['image/jpeg', 'image/png', 'image/gif'].includes(type) && MMS_TYPES[type].includes(ext)
-    && file.size > 0 && file.size <= MMS_MAX;
+    && file.size > 0 && file.size <= MMS_MAX && await looksLike(file, type);
   let bmp = null;
   try { bmp = await createImageBitmap(file, { imageOrientation: 'from-image' }); } catch {}
   if (!bmp && !asIs) throw new Error(`“${file.name}” can’t be opened here` +
     (/heic|heif/.test(type + ext) ? ' (it’s an iPhone HEIC photo)' : '') + '. Save it as a JPEG and try again.');
   try {
     if (asIs) return { name: file.name, type, blob: file, size: file.size, thumb: bmp && thumbOf(bmp), kind: 'image', note: '' };
-    const blob = await fitJpeg(bmp);
+    const blob = await fitJpeg(bmp).catch(() => { throw new Error(`“${file.name}” couldn’t be made small enough to send.`); });
     const note = (file.size > MMS_MAX ? 'shrunk from ' + human(file.size) : 'converted to JPEG') +
       (type === 'image/gif' ? ', as a still picture' : '');
     return { name: stem(file.name) + '.jpg', type: 'image/jpeg', blob, size: blob.size, thumb: thumbOf(bmp), kind: 'image', note };
@@ -388,29 +431,35 @@ const base64 = (blob) => new Promise((resolve, reject) => {
   fr.readAsDataURL(blob);
 });
 
-// Files dropped anywhere on the page go to the composer on screen. Never let
-// the window try to open a dropped file.
+// Files dropped anywhere on the page go to the composer on screen (none after
+// Back on a narrow window). Never let the window try to open a dropped file.
 const hasFiles = (e) => [...(e.dataTransfer?.types || [])].includes('Files');
+const shownComposer = () => { const c = document.querySelector('#pane .compose'); return c && c.offsetParent !== null ? c : null; };
 document.addEventListener('dragover', (e) => {
   if (!hasFiles(e)) return;
   e.preventDefault();
-  const c = document.querySelector('.compose');
+  const c = shownComposer();
   e.dataTransfer.dropEffect = c ? 'copy' : 'none';
   c?.classList.add('drop');
 });
 document.addEventListener('dragleave', (e) => {
-  if (!e.relatedTarget) document.querySelector('.compose')?.classList.remove('drop');
+  if (!e.relatedTarget) document.querySelector('.compose.drop')?.classList.remove('drop');
 });
 document.addEventListener('drop', (e) => {
   if (!hasFiles(e)) return;
   e.preventDefault();
-  document.querySelector('.compose')?.classList.remove('drop');
-  if (document.querySelector('.compose') && e.dataTransfer.files.length) dropInto?.([...e.dataTransfer.files]);
+  document.querySelector('.compose.drop')?.classList.remove('drop');
+  const c = shownComposer();
+  if (c && e.dataTransfer.files.length) c.addFiles([...e.dataTransfer.files]);
 });
 
 // ---- thread -------------------------------------------------------------------
-function composer({ to = null } = {}) {
+// conv: {line, remote} for a conversation's composer; to: '' for a new message.
+function composer({ to = null, conv = null } = {}) {
   const wrap = el('div', 'compose');
+  const key = conv ? conv.line + '|' + conv.remote : 'new';
+  let sending = false;
+  let cid = crypto.randomUUID();   // this draft's message id, the same on every retry
   let toInput = null, lineSel = null;
   if (to !== null) {
     const row = el('div', 'to');
@@ -435,7 +484,7 @@ function composer({ to = null } = {}) {
     const s = ta.selectionStart ?? ta.value.length, e = ta.selectionEnd ?? s;
     ta.setRangeText(c, s, e, 'end');
     ta.oninput();
-  });
+  }, ta);
   const clip = el('button', 'tool', '📎');
   clip.type = 'button'; clip.title = 'Attach pictures or files'; clip.setAttribute('aria-label', 'Attach pictures or files');
   const pick = el('input'); pick.type = 'file'; pick.multiple = true; pick.hidden = true; pick.accept = ACCEPT;
@@ -444,9 +493,10 @@ function composer({ to = null } = {}) {
   r.append(emo, clip, ta, send);
   const tray = el('div', 'atts');
   const foot = el('div', 'cfoot');
-  const err = el('span', 'err');
+  const err = el('span', 'err'); err.setAttribute('role', 'alert');
+  const live = el('span', 'sr'); live.setAttribute('aria-live', 'polite');
   const count = el('span', 'count', '0/' + MAX);
-  foot.append(el('span', 'meta', 'Enter to send · Shift+Enter for a new line'), el('span', 'grow'), err, count);
+  foot.append(el('span', 'meta', 'Enter to send · Shift+Enter for a new line'), el('span', 'grow'), err, count, live);
   wrap.append(tray, r, foot, pick);
 
   // Attachments: prepared (checked, converted, previewed) as they're added,
@@ -454,18 +504,25 @@ function composer({ to = null } = {}) {
   // retry after a failed send, as long as the line is the same.
   const atts = [];
   async function addFiles(files) {
-    if (sending || !wrap.isConnected) return;
+    if (!wrap.isConnected) return;
+    const busyMsg = 'Wait for this message to finish sending, then add files.';
+    if (sending) { err.textContent = busyMsg; return; }
     err.textContent = '';
     for (const f of files) {
+      if (sending) { err.textContent = busyMsg; break; }      // a send began while the last file was prepared
       if (atts.length >= MMS_FILES) { err.textContent = `At most ${MMS_FILES} attachments per message.`; break; }
       const a = { name: f.name || 'file', size: f.size, busy: true };
       atts.push(a); drawAtts();
-      try { Object.assign(a, await prepare(f), { busy: false }); }
+      live.textContent = 'Preparing ' + a.name;
+      try { Object.assign(a, await prepare(f), { busy: false }); live.textContent = 'Attached ' + a.name; }
       catch (e) { const i = atts.indexOf(a); if (i >= 0) atts.splice(i, 1); err.textContent = e.message; }
       drawAtts();
     }
   }
+  // A failed draft that's been emptied is no longer waiting to be sent.
+  const forgetIfEmpty = () => { if (!sending && !ta.value.trim() && !atts.length && unsent.delete(key)) renderConvs(); };
   function drawAtts() {
+    forgetIfEmpty();
     tray.textContent = '';
     for (const a of atts) {
       const c = el('div', 'att' + (a.busy ? ' busy' : ''));
@@ -489,7 +546,8 @@ function composer({ to = null } = {}) {
     if (r.error) throw new Error(r.error);
     return r.id;
   }
-  dropInto = addFiles;
+  wrap.addFiles = addFiles;
+  wrap.focusInput = () => (toInput || ta).focus();
   // A pasted picture (a screenshot, an image copied from a page) is attached;
   // anything with text in it pastes as text.
   ta.addEventListener('paste', (e) => {
@@ -505,18 +563,20 @@ function composer({ to = null } = {}) {
     count.textContent = ta.value.length + '/' + MAX;
     count.classList.toggle('over', ta.value.length > MAX);
     err.textContent = '';
+    forgetIfEmpty();
   };
 
   async function doSend() {
     if (sending) return;
     const text = ta.value.trim();
-    const target = toInput ? toInput.value : open.remote;
-    const line = lineSel ? lineSel.value : open.line;
+    const target = toInput ? toInput.value : conv.remote;
+    const line = lineSel ? lineSel.value : conv.line;
     if (!text && !atts.length) return;
     if (text.length > MAX) { err.textContent = 'Too long.'; return; }
     if (toInput && digits(target).length < 10) { err.textContent = 'Enter a full phone number.'; return; }
     if (atts.some(a => a.busy)) { err.textContent = 'Still preparing an attachment…'; return; }
-    sending = true; send.disabled = true; send.textContent = 'Sending…'; err.textContent = '';
+    const status = (t) => { send.textContent = t; live.textContent = t === 'Send' ? '' : t; };
+    sending = true; send.disabled = true; status('Sending…'); err.textContent = '';
     // Lock the composer until the send is confirmed and the box has cleared,
     // so nothing typed in the meantime gets wiped by that clear.
     const lock = (on) => {
@@ -529,41 +589,52 @@ function composer({ to = null } = {}) {
     };
     lock(true);
     try {
+      const list = [...atts];            // what this send carries, whatever happens to the tray meanwhile
       const media = [];
-      for (const [i, a] of atts.entries()) {
+      for (const [i, a] of list.entries()) {
         if (!(a.id && a.idLine === line)) {
-          send.textContent = atts.length > 1 ? `Uploading ${i + 1}/${atts.length}…` : 'Uploading…';
-          a.id = await upload(a, line); a.idLine = line;
+          status(list.length > 1 ? `Uploading ${i + 1}/${list.length}…` : 'Uploading…');
+          try { a.id = await upload(a, line); } catch (e) { throw new Error(`“${a.name}”: ${e.message}`); }
+          a.idLine = line;
         }
         media.push(a.id);
       }
-      send.textContent = 'Sending…';
+      status('Sending…');
       const r = await (await fetch('/api/messages/send', { method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ line, to: target, text, media }) })).json();
+        body: JSON.stringify({ line, to: target, text, media, clientMsgId: cid }) })).json();
       if (r.error) throw new Error(r.error);
       ta.value = ''; ta.oninput();
-      atts.length = 0; drawAtts();
+      for (const a of list) { const i = atts.indexOf(a); if (i >= 0) atts.splice(i, 1); }
+      drawAtts();
+      cid = crypto.randomUUID();
+      unsent.delete(key);
+      // Only move or scroll the page if the user is still looking at this composer.
       if (toInput) {
+        composers.delete('new');
         await loadConvs();
-        const d = digits(target).slice(-10);
-        const c = convs.find(c => c.line === line && digits(c.remote).endsWith(d));
-        await openConv(c || { line, remote: '+1' + d, name: '' });
+        if (wrap.isConnected) {
+          const d = digits(target).slice(-10);
+          const c = convs.find(c => c.line === line && digits(c.remote).endsWith(d));
+          await openConv(c || { line, remote: '+1' + d, name: '' });
+        }
       } else {
-        await loadThread(true);
+        if (wrap.isConnected) await loadThread(true);
         loadConvs();
       }
     } catch (e) {
       err.textContent = 'Not sent: ' + e.message;
+      unsent.add(key);
+      renderConvs();
+      if (!wrap.isConnected && key === 'new') $('#stat').textContent = 'A new message wasn’t sent. Press + Message to see it.';
     } finally {
-      sending = false; send.disabled = false; send.textContent = 'Send';
+      sending = false; send.disabled = false; status('Send');
       lock(false);                       // on failure the text and attachments are still there to retry
-      if (ta.isConnected) ta.focus();
+      if (wrap.isConnected) ta.focus();
     }
   }
   send.onclick = doSend;
   ta.onkeydown = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); doSend(); } };
-  setTimeout(() => (toInput || ta).focus(), 0);
   return wrap;
 }
 
@@ -607,7 +678,11 @@ async function openConv(c) {
   const msgs = el('div', 'msgs'); msgs.id = 'msgs';
   msgs.appendChild(el('div', 'empty', 'Loading…'));
   pane.appendChild(msgs);
-  pane.appendChild(composer());
+  const key = c.line + '|' + c.remote;
+  let comp = composers.get(key);
+  if (!comp) composers.set(key, comp = composer({ conv: { line: c.line, remote: c.remote } }));
+  pane.appendChild(comp);
+  setTimeout(() => comp.isConnected && comp.focusInput(), 0);
   await loadThread(true, { cachedFirst: true });
 }
 
@@ -621,7 +696,10 @@ function startCompose() {
   const msgs = el('div', 'msgs');
   msgs.appendChild(el('div', 'empty', 'Type a number and your message.'));
   pane.appendChild(msgs);
-  pane.appendChild(composer({ to: '' }));
+  let comp = composers.get('new');
+  if (!comp) composers.set('new', comp = composer({ to: '' }));
+  pane.appendChild(comp);
+  setTimeout(() => comp.isConnected && comp.focusInput(), 0);
 }
 
 // cachedFirst: draw the saved thread at once, then fetch what's new. The server
@@ -666,8 +744,14 @@ function renderThread(list, want, scroll) {
     if (dl !== lastDay) { box.appendChild(el('div', 'day', dl)); lastDay = dl; }
     const row = el('div', 'm ' + (m.inbound ? 'them' : 'me') + (m.failed ? ' failed' : ''));
     for (const md of m.media) {
-      if (/^(video|audio)\//.test(md.mime)) { row.appendChild(player(md, want.line)); continue; }
-      if (!md.mime.startsWith('image/')) { row.appendChild(el('div', 'bub', '[' + (md.mime || 'attachment') + ']')); continue; }
+      if (/^(video|audio)\//.test(md.mime)) { row.appendChild(mediaBox(player(md, want.line), m, md, want)); continue; }
+      if (!md.mime.startsWith('image/')) {
+        const a = el('a', 'bub file', (md.mime === 'application/pdf' ? '📄 PDF' : '📎 Attachment') + ' · Save');
+        a.href = '/api/media?id=' + encodeURIComponent(md.id) + '&line=' + encodeURIComponent(want.line) + '&download=1';
+        a.setAttribute('download', '');
+        row.appendChild(mediaBox(a, m, md, want, true));
+        continue;
+      }
       const img = el('img');
       img.loading = 'lazy';
       img.alt = 'Photo';
@@ -678,7 +762,7 @@ function renderThread(list, want, scroll) {
         $('#lbdl').href = img.src + '&download=1';
         lb.classList.add('open');
       };
-      row.appendChild(img);
+      row.appendChild(mediaBox(img, m, md, want));
     }
     if (m.text) row.appendChild(el('div', 'bub', m.text));
     const t = new Date(m.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
@@ -711,6 +795,52 @@ function player(md, line) {
   }, { once: true });
   wrap.appendChild(v);
   return wrap;
+}
+
+// A photo or other attachment in the thread, with a delete button (shown on
+// hover or keyboard focus; beside it for file links).
+function mediaBox(node, m, md, conv, inline = false) {
+  const box = el('div', 'mbox' + (inline ? ' inline' : ''));
+  const del = el('button', 'mdel', '🗑');
+  del.type = 'button'; del.title = 'Delete'; del.setAttribute('aria-label', 'Delete this ' + mediaWord(md.mime));
+  del.onclick = (e) => { e.stopPropagation(); deleteAttachment(m, md, conv); };
+  box.append(node, del);
+  return box;
+}
+
+async function deleteAttachment(m, md, conv) {
+  const what = mediaWord(md.mime);
+  const whole = m.media.length === 1 && !m.text;
+  const ok = await ask(`Delete this ${what}?`,
+    (whole ? 'It’s all this message had, so the message is deleted too. ' : '') +
+    'It’s removed from this conversation in your account; the other person keeps their copy. This can’t be undone.', 'Delete');
+  if (!ok) return;
+  $('#stat').textContent = 'Deleting…';
+  try {
+    const r = await (await fetch('/api/messages/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ line: conv.line, remote: conv.remote, messageId: m.id, mediaId: md.id }) })).json();
+    if (r.error) throw new Error(r.error);
+    $('#stat').textContent = '';
+    if (open === conv) { openSig = ''; await loadThread(false); }
+    loadConvs();
+  } catch (e) { $('#stat').textContent = 'Couldn’t delete: ' + e.message; }
+}
+
+// A yes/no question in a small dialog; Cancel has the focus, Esc says no.
+function ask(title, body, yes) {
+  return new Promise((resolve) => {
+    const d = el('dialog', 'ask');
+    const no = el('button', '', 'Cancel'), ok = el('button', 'danger', yes);
+    const row = el('div', 'askrow'); row.append(no, ok);
+    d.append(el('h3', '', title), el('p', '', body), row);
+    const done = (v) => { d.close(); d.remove(); resolve(v); };
+    no.onclick = () => done(false);
+    ok.onclick = () => done(true);
+    d.addEventListener('cancel', (e) => { e.preventDefault(); done(false); });
+    document.body.appendChild(d);
+    d.showModal();
+    no.focus();
+  });
 }
 
 $('#lb').onclick = (e) => { if (!e.target.closest('.lbbar')) $('#lb').classList.remove('open'); };

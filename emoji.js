@@ -1,5 +1,5 @@
 // Emoji picker for message composers. Include with <script src="/emoji.js">;
-// exposes window.switchboardEmoji.open(anchorEl, onPick).
+// exposes window.switchboardEmoji.open(anchorEl, onPick, returnFocusTo?).
 //
 // A popover with category tabs, search by name, and recently used (kept in
 // localStorage). The emoji list is built in, so nothing is fetched. Picked
@@ -58,7 +58,7 @@
   document.head.appendChild(style);
 
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
-  let box = null, onPick = null, anchor = null, tab = 'smileys';
+  let box = null, onPick = null, anchor = null, returnTo = null, tab = 'smileys';
 
   function build() {
     box = el('div', 'ep');
@@ -134,17 +134,20 @@
   const onKey = (e) => { if (e.key === 'Escape' && box && !box.hidden) { e.preventDefault(); close(); } };
   function close() {
     if (!box || box.hidden) return;
+    const hadFocus = box.contains(document.activeElement);
     box.hidden = true;
+    if (hadFocus) (returnTo?.isConnected ? returnTo : anchor)?.focus();
     document.removeEventListener('mousedown', outside, true);
     document.removeEventListener('keydown', onKey, true);
     window.removeEventListener('resize', close);
     anchor?.setAttribute('aria-expanded', 'false');
   }
 
-  function open(anchorEl, pick) {
+  // back: where keyboard focus goes when the picker closes (default: the button).
+  function open(anchorEl, pick, back = null) {
     if (!box) build();
     if (!box.hidden && anchor === anchorEl) { close(); return; }   // the button toggles
-    anchor = anchorEl; onPick = pick;
+    anchor = anchorEl; onPick = pick; returnTo = back;
     tab = recent().length ? 'recent' : 'smileys';
     box._parts.search.value = '';
     box.hidden = false;

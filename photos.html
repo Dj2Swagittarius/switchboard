@@ -64,6 +64,14 @@ main{padding:12px 16px 40px;max-width:1300px;margin:0 auto}
 .lbtop{display:flex;align-items:center;gap:10px;padding:10px 14px;color:#e6e9ee}
 .lbtop .who{font-weight:650}
 .lbtop .meta{color:#a4adb8}
+#lbdel{border-color:rgba(255,110,110,.55)}
+dialog.ask{border:1px solid var(--line);border-radius:14px;background:var(--menu, var(--panel));color:var(--ink);
+  padding:18px 20px;max-width:380px;box-shadow:0 18px 50px rgba(0,0,0,.45)}
+dialog.ask::backdrop{background:rgba(5,8,14,.5)}
+dialog.ask h3{margin:0 0 8px;font-size:16px}
+dialog.ask p{margin:0 0 16px;color:var(--muted);font-size:13.5px;line-height:1.45}
+.askrow{display:flex;justify-content:flex-end;gap:8px}
+button.danger{background:var(--urgent) !important;border-color:var(--urgent) !important;color:#fff;font-weight:600}
 .lbtop button,.lbtop a{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.16);color:#fff;
   text-decoration:none;padding:6px 11px;border-radius:7px;font-size:13px}
 .lbmid{flex:1;display:flex;align-items:center;justify-content:center;min-height:0;position:relative}
@@ -116,6 +124,7 @@ main{padding:12px 16px 40px;max-width:1300px;margin:0 auto}
     <span class="grow"></span>
     <a id="lbconv" href="#">Open conversation</a>
     <a id="lbdl" href="#" download>Download</a>
+    <button id="lbdel">Delete</button>
     <button id="lbx">Close</button>
   </div>
   <div class="lbmid">
@@ -267,12 +276,53 @@ function openLb(i) {
   for (const j of [i - 1, i + 1]) if (shown[j]) { const im = new Image(); im.src = src(shown[j]); }
 }
 const closeLb = () => { $('#lb').classList.remove('open'); lbIndex = -1; };
+
+// A yes/no question in a small dialog; Cancel has the focus, Esc says no.
+function ask(title, body, yes) {
+  return new Promise((resolve) => {
+    const d = el('dialog', 'ask');
+    const no = el('button', '', 'Cancel'), ok = el('button', 'danger', yes);
+    const row = el('div', 'askrow'); row.append(no, ok);
+    d.append(el('h3', '', title), el('p', '', body), row);
+    const done = (v) => { d.close(); d.remove(); resolve(v); };
+    no.onclick = () => done(false);
+    ok.onclick = () => done(true);
+    d.addEventListener('cancel', (e) => { e.preventDefault(); e.stopPropagation(); done(false); });
+    document.body.appendChild(d);
+    d.showModal();
+    no.focus();
+  });
+}
+
+// Deletes the photo on show from its conversation (the whole message if the
+// photo was all it had), then moves on to the next one.
+let deleting = false;
+$('#lbdel').onclick = async () => {
+  const p = shown[lbIndex];
+  if (!p || deleting) return;
+  const ok = await ask('Delete this photo?', 'It’s removed from your conversation with ' + who(p) +
+    ' in your account (with its message, if the photo was all it had); the other person keeps their copy. This can’t be undone.', 'Delete');
+  if (!ok) return;
+  deleting = true; $('#lbdel').disabled = true; $('#lbdel').textContent = 'Deleting…';
+  try {
+    const r = await (await fetch('/api/messages/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ line: p.line, remote: p.remote, messageId: p.msg, mediaId: p.id }) })).json();
+    if (r.error) throw new Error(r.error);
+    const at = lbIndex;
+    all = all.filter(x => x.id !== p.id);
+    selected.delete(p.id); updateSel();
+    fillConvs(); render();
+    if (shown.length) openLb(Math.min(at, shown.length - 1)); else closeLb();
+  } catch (e) {
+    $('#stat').textContent = $('#lbwhen').textContent = 'Couldn’t delete: ' + e.message;
+  } finally { deleting = false; $('#lbdel').disabled = false; $('#lbdel').textContent = 'Delete'; }
+};
 $('#lbx').onclick = closeLb;
 $('#lbprev').onclick = () => lbIndex > 0 && openLb(lbIndex - 1);
 $('#lbnext').onclick = () => lbIndex < shown.length - 1 && openLb(lbIndex + 1);
 $('.lbmid').onclick = (e) => { if (e.target.classList.contains('lbmid')) closeLb(); };
 document.addEventListener('keydown', (e) => {
-  if (lbIndex < 0) return;
+  if (lbIndex < 0 || document.querySelector('dialog.ask')) return;
   if (e.key === 'Escape') closeLb();
   if (e.key === 'ArrowLeft' && lbIndex > 0) openLb(lbIndex - 1);
   if (e.key === 'ArrowRight' && lbIndex < shown.length - 1) openLb(lbIndex + 1);
