@@ -941,8 +941,9 @@ const server = createServer(async (req, res) => {
       } catch (e) { return json(res, 400, { error: e.message }); }
     }
 
-    // A conversation's history as a CSV download.
-    if (p === '/api/conversation/export') {
+    // A conversation's history as a CSV download (the app's own windows only).
+    if (p === '/api/conversation/export' && req.method === 'GET') {
+      if (!fromApp(req)) return json(res, 403, { error: 'Open this from the Switchboard app.' });
       try {
         const { csv, name } = await conversationCsv(session, { line: url.searchParams.get('line'), remote: url.searchParams.get('remote') });
         const who = String(name).replace(/[^A-Za-z0-9+]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 40) || 'conversation';
