@@ -1,21 +1,97 @@
 {
   "name": "switchboard",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
-  "description": "Personal desktop client for your phone lines: messages, calls, voicemail, contacts, photos, with local AI triage.",
+  "description": "Desktop softphone and messaging client: calls, texts with pictures, voicemail, contacts, photos and fax.",
   "type": "module",
   "main": "electron/main.mjs",
   "scripts": {
     "start": "electron .",
     "smoke": "electron . --smoke",
-    "server": "node server.mjs"
+    "server": "node server.mjs",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder --win nsis"
   },
   "devDependencies": {
-    "electron": "^44.4.5"
+    "electron": "^44.4.5",
+    "electron-builder": "^26.15.3"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.128.0",
     "sip.js": "^0.21.1"
   },
-  "productName": "Switchboard"
+  "productName": "Switchboard",
+  "author": "Switchboard",
+  "build": {
+    "appId": "com.switchboard.desktop",
+    "productName": "Switchboard",
+    "copyright": "Switchboard",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "electronDist": "node_modules/electron/dist",
+    "electronVersion": "44.4.5",
+    "electronLanguages": [
+      "en-US"
+    ],
+    "npmRebuild": false,
+    "asar": true,
+    "asarUnpack": [
+      "transcribe.py"
+    ],
+    "files": [
+      "package.json",
+      "server.mjs",
+      "electron/main.mjs",
+      "electron/icon.mjs",
+      "electron/phone-preload.cjs",
+      "electron/app.ico",
+      "lib/**/*.mjs",
+      "!lib/autoreply.mjs",
+      "account.html",
+      "calls.html",
+      "contacts.html",
+      "fax.html",
+      "insights.html",
+      "messages.html",
+      "parked.html",
+      "phone.html",
+      "photos.html",
+      "settings.html",
+      "ui.html",
+      "voicemail.html",
+      "bg.js",
+      "dialpad.js",
+      "emoji.js",
+      "nav.js",
+      "sounds.js",
+      "glass.css",
+      "assets/bg-dark.webp",
+      "assets/bg-light.webp",
+      "transcribe.py"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "runAfterFinish": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Switchboard",
+      "deleteAppDataOnUninstall": false,
+      "artifactName": "Switchboard-Setup-${version}.exe"
+    },
+    "publish": null
+  }
 }

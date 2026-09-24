@@ -25,3 +25,9 @@ backups/
 reviews/
 logs/
 faxes/
+
+# packaging output and local-only files
+dist/
+.claude/
+lines.json
+autoreply.json

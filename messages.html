@@ -278,6 +278,14 @@ function renderConvs() {
     (qd && digits(c.remote).includes(qd)) ||
     (c.last.text || '').toLowerCase().includes(q));
   box.textContent = '';
+  // No lines set up yet (a new install): say where to add one.
+  if (!lines.length) {
+    const e = el('div', 'empty', 'Add your texting number in ');
+    const a = el('a', '', 'Settings → Lines'); a.href = '/settings';
+    e.append(a, ' to see your messages here.');
+    box.appendChild(e);
+    return;
+  }
   if (!list.length) { box.appendChild(el('div', 'empty', q ? 'No matches.' : 'No conversations.')); return; }
   const multi = !$('#line').value && lines.length > 1;
 

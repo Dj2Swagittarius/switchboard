@@ -8,18 +8,33 @@ import { app, BrowserWindow, WebContentsView, Tray, Menu, Notification, nativeTh
 import { randomBytes } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
 import { writeFileSync, mkdirSync, existsSync, appendFileSync, statSync, renameSync } from 'node:fs';
 import { appIcon, trayIcon, appIco } from './icon.mjs';
-import * as settings from '../lib/settings.mjs';
 
-// The app was renamed from "Ooma Triage" to Switchboard. Its data folder keeps
-// the original name: on Windows it holds the key (in "Local State") that
-// decrypts secrets.bin, so moving it would silently lose saved logins.
-app.setPath('userData', join(app.getPath('appData'), 'ooma-triage'));
+// Where per-user files go (lib/paths.mjs), decided before anything that reads
+// them is loaded. An installed copy keeps them in %APPDATA%\Switchboard: its
+// own files are read-only. Run from the project folder, the data files stay in
+// the project folder and Electron's profile keeps the name the app had when it
+// was "Ooma Triage": on Windows that folder holds the key (in "Local State")
+// that decrypts secrets.bin, so moving it would silently lose saved logins.
+// SWITCHBOARD_DATA overrides both, for a test run that mustn't touch real data.
+if (process.env.SWITCHBOARD_DATA) app.setPath('userData', process.env.SWITCHBOARD_DATA);
+else if (app.isPackaged) {
+  app.setPath('userData', join(app.getPath('appData'), 'Switchboard'));
+  process.env.SWITCHBOARD_DATA = app.getPath('userData');
+} else app.setPath('userData', join(app.getPath('appData'), 'ooma-triage'));
+const settings = await import('../lib/settings.mjs');
+const { dataPath } = await import('../lib/paths.mjs');
+
 app.setName('Switchboard');
-const APP_ID = 'Switchboard';
+// The installer stamps its shortcuts with this id (build.appId in package.json);
+// Windows needs the two to match to show the app's notifications.
+const APP_ID = app.isPackaged ? 'com.switchboard.desktop' : 'Switchboard';
 const OLD_APP_ID = 'com.drew.ooma-triage';
+// Launch-at-login: an installed copy is its own .exe; run from the project
+// folder, electron.exe needs the app folder passed to it.
+const LOGIN_ARGS = () => app.isPackaged ? [] : [ROOT];
 
 const PORT = Number(process.env.UI_PORT ?? 8787);
 const ORIGIN = `http://127.0.0.1:${PORT}`;
@@ -61,7 +76,7 @@ const pretty = (n) => {
 };
 
 // ---- single instance -------------------------------------------------------
-if (!SMOKE && !MAKE_SHORTCUT && !app.requestSingleInstanceLock()) app.quit();
+if (!SMOKE && !MAKE_SHORTCUT && !app.requestSingleInstanceLock()) app.exit(0);
 app.on('second-instance', () => show());
 
 // Windows only delivers toasts for an identified app.
@@ -81,7 +96,7 @@ async function ours() {
 
 async function ensureServer() {
   if (await ours()) return 'attached';
-  process.chdir(ROOT);
+  if (!app.isPackaged) process.chdir(ROOT);          // (an installed copy's folder is an archive)
   await import(pathToFileURL(join(ROOT, 'server.mjs')).href);
   for (let i = 0; i < 40; i++) {
     if (await ours()) return 'hosted';
@@ -156,7 +171,7 @@ function createPhoneView() {
 // '[sip] ' prefix only while the setting is on; they land in logs\sip-trace.log
 // (rolled to .old at 5 MB). Digest login lines are dropped: the file is for
 // comparing signaling with a provider, and may be shared with one.
-const TRACE_FILE = join(ROOT, 'logs', 'sip-trace.log');
+const TRACE_FILE = dataPath('logs', 'sip-trace.log');
 const TRACE_MAX = 5 * 1024 * 1024;
 function sipTrace(text) {
   if (typeof text !== 'string' || !text.startsWith('[sip] ') || !settings.get('phone.sipTrace')) return;
@@ -164,7 +179,7 @@ function sipTrace(text) {
     .filter((l) => !/^\s*(proxy-)?authorization\s*:/i.test(l))
     .join('\n');
   try {
-    mkdirSync(join(ROOT, 'logs'), { recursive: true });
+    mkdirSync(dataPath('logs'), { recursive: true });
     if (existsSync(TRACE_FILE) && statSync(TRACE_FILE).size > TRACE_MAX) renameSync(TRACE_FILE, TRACE_FILE + '.old');
     appendFileSync(TRACE_FILE, `[${new Date().toISOString()}] ${clean}\n`);
   } catch {}
@@ -264,7 +279,7 @@ function show(path) {
 
 // ---- tray ------------------------------------------------------------------
 function loginEnabled() {
-  return app.getLoginItemSettings({ path: process.execPath, args: [ROOT] }).openAtLogin;
+  return app.getLoginItemSettings({ path: process.execPath, args: LOGIN_ARGS() }).openAtLogin;
 }
 
 // The Windows startup entry used to be written under the old app id. Move it
@@ -272,20 +287,19 @@ function loginEnabled() {
 // Electron only looks entries up by the current app id, so it can't see the old
 // one; ask Windows directly (read-only) whether it exists.
 function migrateLoginItem() {
-  if (process.platform !== 'win32') return;
+  if (process.platform !== 'win32' || app.isPackaged) return;
   try {
     execFileSync('reg', ['query', 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run', '/v', OLD_APP_ID],
       { stdio: 'ignore', windowsHide: true });
   } catch { return; }                                   // no old entry: nothing to do
   try {
-    app.setLoginItemSettings({ openAtLogin: false, path: process.execPath, args: [ROOT], name: OLD_APP_ID });
+    app.setLoginItemSettings({ openAtLogin: false, path: process.execPath, args: LOGIN_ARGS(), name: OLD_APP_ID });
     setLogin(true);
   } catch {}
 }
 
 function setLogin(on) {
-  // Unpackaged, the executable is electron.exe, so the app path must be passed.
-  app.setLoginItemSettings({ openAtLogin: on, path: process.execPath, args: [ROOT] });
+  app.setLoginItemSettings({ openAtLogin: on, path: process.execPath, args: LOGIN_ARGS() });
 }
 
 function refreshTray() {
@@ -427,6 +441,7 @@ const downloadsDefault = () => join(app.getPath('downloads'), 'Switchboard Photo
 // has that folder keeps it (saved as an explicit choice) instead of quietly
 // starting a second folder under the new default name.
 function migrateDownloadsFolder() {
+  if (app.isPackaged) return;
   try {
     if (settings.get('downloads.folder')) return;
     const old = join(app.getPath('downloads'), 'Ooma Photos');
@@ -465,18 +480,19 @@ globalThis.__triageHost = {
 // Desktop shortcut with the app's icon and app id. The id matters: it makes the
 // shortcut and the running window one taskbar entry, and lets Windows label
 // notifications "Switchboard".
+// An installed copy points at its own .exe (which carries the icon); run from
+// the project folder, at electron.exe with the app folder.
 function createDesktopShortcut() {
-  const ico = join(ROOT, 'electron', 'app.ico');
-  writeFileSync(ico, appIco());
   const lnk = join(app.getPath('desktop'), 'Switchboard.lnk');
+  let where;
+  if (app.isPackaged) where = { target: process.execPath, cwd: dirname(process.execPath), icon: process.execPath };
+  else {
+    const ico = join(ROOT, 'electron', 'app.ico');
+    writeFileSync(ico, appIco());
+    where = { target: process.execPath, args: `"${ROOT}"`, cwd: ROOT, icon: ico };
+  }
   const ok = shell.writeShortcutLink(lnk, 'create', {
-    target: process.execPath,
-    args: `"${ROOT}"`,
-    cwd: ROOT,
-    icon: ico,
-    iconIndex: 0,
-    appUserModelId: APP_ID,
-    description: 'Switchboard softphone',
+    ...where, iconIndex: 0, appUserModelId: APP_ID, description: 'Switchboard softphone',
   });
   return { ok, path: lnk };
 }
@@ -489,6 +505,8 @@ app.whenReady().then(async () => {
     app.exit(r.ok ? 0 : 1);
     return;
   }
+  // An installed copy has no developer menu (reload, dev tools).
+  if (app.isPackaged) Menu.setApplicationMenu(null);
   migrateLoginItem();
   migrateDownloadsFolder();
   let mode;

@@ -31,6 +31,7 @@ import { photoIndex, fileName } from './lib/photos.mjs';
 import { zip } from './lib/zip.mjs';
 import { playable } from './lib/transcode.mjs';
 import * as fax from './lib/fax.mjs';
+import { dataPath, DATA_DIR } from './lib/paths.mjs';
 
 // Thumbnails need an image decoder. When hosted inside the Electron app we
 // can use its nativeImage; under plain Node, thumbnails fall back to the
@@ -335,7 +336,7 @@ const PLATFORM_API = new Set(['/api/review/run', '/api/insights', '/api/conversa
 const SIP_USER = /^[^\s@:;<>"]{1,64}$/;
 
 // Custom sounds chosen in Settings are copied here under fixed names.
-const SOUNDS_DIR = fileURLToPath(new URL('./sounds/', import.meta.url));
+const SOUNDS_DIR = dataPath('sounds');
 const SOUND_FILE = /^custom-(ringtone|message|urgent)\.(mp3|wav|ogg|m4a)$/;
 const SOUND_TYPES = { '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.ogg': 'audio/ogg', '.m4a': 'audio/mp4' };
 const SOUND_MAX = 5 * 1024 * 1024;
@@ -516,7 +517,7 @@ const server = createServer(async (req, res) => {
           account: secrets.status(),
           profile: profileView(),
           version: JSON.parse(await readFile(new URL('./package.json', import.meta.url), 'utf8')).version,
-          appFolder: fileURLToPath(new URL('.', import.meta.url)),
+          appFolder: DATA_DIR,
         });
       }
 
