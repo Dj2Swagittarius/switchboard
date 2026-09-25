@@ -62,6 +62,10 @@ input[type=text],input[type=url]{min-width:0}
 .seg button{border:0;border-radius:0;padding:6px 12px}
 .seg button + button{border-left:1px solid var(--line)}
 .seg button.on{background:var(--sel);color:var(--accent);font-weight:600}
+.themes{flex-basis:100%;display:grid;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:10px}
+.themes button{display:flex;flex-direction:column;gap:6px;padding:6px;border-radius:12px;text-align:left;font-weight:500}
+.themes button.on{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset;color:var(--accent);font-weight:600}
+.themes i{display:block;height:46px;border-radius:8px;background-color:#0b0e14}
 input[type=range]{width:160px;accent-color:var(--accent)}
 .path{font-size:12.5px;color:var(--muted);word-break:break-all}
 .line{display:flex;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--line)}
@@ -127,6 +131,16 @@ button.bad{border-color:var(--urgent);color:var(--urgent)}
       </select></div>
     <div class="row"><div class="lbl"><b>Appearance</b></div>
       <div class="seg" id="theme"><button data-v="dark">Dark</button><button data-v="light">Light</button><button data-v="system">System</button></div></div>
+    <div class="row" style="flex-wrap:wrap"><div class="lbl"><b>Theme</b><span>The moving background behind the glass. Each one works in dark and light.</span></div>
+      <div class="themes" id="bgTheme">
+        <button data-v="default"><i style="background-image:linear-gradient(120deg,#2f4fd0,#6d4ee6 55%,#178fa3)"></i>Silk &amp; Opal</button>
+        <button data-v="aurora"><i style="background-image:radial-gradient(28% 90% at 50% 60%,#f27dd7,#6d4df2 55%,transparent)"></i>Aurora</button>
+        <button data-v="marble"><i style="background-image:radial-gradient(55% 60% at 72% 35%,#1fa39a,transparent 70%),radial-gradient(45% 55% at 22% 78%,#0e6d67,transparent 70%)"></i>Marble</button>
+        <button data-v="mercury"><i style="background-image:linear-gradient(135deg,transparent 30%,#dfe3ee 48%,transparent 52%,transparent 68%,#8d93a3 74%,transparent 80%)"></i>Mercury</button>
+        <button data-v="dawn"><i style="background-image:radial-gradient(90% 30% at 50% 50%,#a86df2,transparent),linear-gradient(90deg,#5b8af2,#f25b9e);background-blend-mode:screen;background-size:100% 100%,100% 22%;background-repeat:no-repeat;background-position:center"></i>Dawn</button>
+        <button data-v="vapor"><i style="background-image:linear-gradient(170deg,transparent 22%,#2fb5c9 30%,transparent 38%,transparent 46%,#3b6cf6 53%,transparent 60%,transparent 66%,#5fd6a0 72%,transparent 80%)"></i>Vapor</button>
+        <button data-v="velvet"><i style="background-image:radial-gradient(140% 120% at 110% -10%,transparent 52%,#e8603c 62%,transparent 74%)"></i>Velvet</button>
+      </div></div>
     <div class="row"><div class="lbl"><b>Animated background</b><span>Off freezes the background where it is. Saves a little GPU.</span></div>
       <label class="sw"><input type="checkbox" data-k="general.animatedBackground" id="animBg"><i></i></label></div>
     <div class="row" id="loginRow"><div class="lbl"><b>Start when Windows starts</b><span>Keeps you reachable without opening the app yourself.</span></div>
@@ -717,6 +731,7 @@ function render() {
   }
   applyProfile();                  // again, now the values are in (start page fallback)
   for (const b of $('#theme').children) b.classList.toggle('on', b.dataset.v === S.general.theme);
+  for (const b of $('#bgTheme').children) b.classList.toggle('on', b.dataset.v === S.general.background);
   $('#folder').textContent = S.downloads.folder || ((meta.host?.downloadsDefault || 'Downloads\\Switchboard Photos') + '  (default)');
   const host = meta.host;
   $('#loginItem').checked = !!host?.loginItem;
@@ -744,6 +759,9 @@ for (const inp of document.querySelectorAll('[data-k]')) {
 $('#animBg').addEventListener('change', () => window.switchboardBg?.set($('#animBg').checked));
 for (const b of $('#theme').children) {
   b.onclick = () => { applyTheme(b.dataset.v); save({ 'general.theme': b.dataset.v }).then(render); };
+}
+for (const b of $('#bgTheme').children) {
+  b.onclick = () => { window.switchboardBg?.theme(b.dataset.v); save({ 'general.background': b.dataset.v }).then(render); };
 }
 $('#loginItem').onchange = async () => {
   try { const j = await api('/api/settings/action', { action: 'loginItem', value: $('#loginItem').checked });
@@ -774,7 +792,7 @@ $('#clearCache').onclick = async () => {
 };
 $('#reset').onclick = async () => {
   if (!(await ask('Reset all settings to their defaults?', 'Lines, contacts and logins are kept.', 'Reset'))) return;
-  try { const j = await api('/api/settings/action', { action: 'reset' }); S = j.settings; applyTheme(S.general.theme);
+  try { const j = await api('/api/settings/action', { action: 'reset' }); S = j.settings; applyTheme(S.general.theme); window.switchboardBg?.theme(S.general.background);
         phone.postMessage({ type: 'reload' }); render(); window.switchboardNav?.refresh(); toast('Settings reset'); }
   catch (e) { toast(e.message, true); }
 };
