@@ -141,7 +141,23 @@ itself, and the migration is safe to run again (it only acts once):
 
 ## Sharing with coworkers
 
-Copy the app folder, but leave out what is yours:
+The easy way: send them the installer from the
+[latest release](https://github.com/Dj2Swagittarius/switchboard/releases/latest)
+(`Switchboard-Setup-<version>.exe`). Installed copies update themselves: they
+check the releases at start and every 4 hours, download a newer version in the
+background, and install it when Switchboard closes (or right away from the
+tray's "Restart to update"). Copies from before 0.3.4 have no updater; install
+0.3.4 once by hand and they update from then on.
+
+### Releasing a new version
+
+1. Bump `version` in `package.json` and commit.
+2. Build and upload: `$env:GH_TOKEN = (gh auth token); npm run dist -- --publish always`.
+   This publishes a GitHub release `v<version>` with the installer,
+   its `.blockmap`, and `latest.yml` (what installed copies read).
+3. Push the commit and tag: `git tag v<version>; git push; git push --tags`.
+
+Running from a copied folder instead: copy the app folder, but leave out what is yours:
 
 - `.env`, `.token.json` and `secrets.bin`: your logins and session.
   (`secrets.bin` can't be decrypted on another Windows account anyway.)

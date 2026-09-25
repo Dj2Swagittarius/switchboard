@@ -321,9 +321,54 @@ function refreshTray() {
     { type: 'separator' },
     { label: 'Launch at login', type: 'checkbox', checked: loginEnabled(),
       click: (item) => { setLogin(item.checked); refreshTray(); } },
+    ...(!app.isPackaged ? [] : updateReady
+      ? [{ label: `Restart to update (v${updateReady})`, click: () => installUpdate() }]
+      : [{ label: updateNote || 'Check for updates', enabled: !updateNote, click: () => checkUpdates(true) }]),
     { type: 'separator' },
     { label: 'Quit', click: () => { quitting = true; app.quit(); } },
   ]));
+}
+
+// ---- updates ---------------------------------------------------------------
+// An installed copy checks GitHub Releases at start and every few hours, and
+// downloads a newer version in the background. It installs when the app quits,
+// or at once from the tray/toast ("Restart to update") — never mid-call on its own.
+let updater = null, updateReady = '', updateNote = '';
+async function startUpdates() {
+  if (!app.isPackaged || SMOKE) return;
+  try { updater = (await import('electron-updater')).default.autoUpdater; }
+  catch (e) { console.error('updates: ' + e.message); return; }
+  updater.autoDownload = true;
+  updater.autoInstallOnAppQuit = true;
+  updater.on('update-available', (i) => { updateNote = `Downloading v${i.version}…`; refreshTray(); });
+  updater.on('update-not-available', () => { updateNote = ''; refreshTray(); });
+  updater.on('error', (e) => { console.error('updates: ' + (e?.message || e)); updateNote = ''; refreshTray(); });
+  updater.on('update-downloaded', (i) => {
+    updateReady = i.version; updateNote = '';
+    refreshTray();
+    if (!Notification.isSupported()) return;
+    const n = new Notification({ title: `Switchboard ${i.version} is ready`,
+      body: 'Click to restart and update now, or it installs next time Switchboard closes.', icon: appIcon(), silent: true });
+    n.on('click', () => installUpdate());
+    n.show();
+  });
+  checkUpdates();
+  setInterval(checkUpdates, 4 * 3600e3);
+}
+async function checkUpdates(byHand = false) {
+  if (!updater || updateReady) return;
+  if (byHand) { updateNote = 'Checking for updates…'; refreshTray(); }
+  try {
+    const r = await updater.checkForUpdates();
+    if (byHand && !r?.isUpdateAvailable && Notification.isSupported())
+      new Notification({ title: 'Switchboard is up to date', body: `Version ${app.getVersion()}`, icon: appIcon(), silent: true }).show();
+  } catch (e) { console.error('updates: ' + e.message); }
+  if (updateNote === 'Checking for updates…') { updateNote = ''; refreshTray(); }
+}
+function installUpdate() {
+  if (!updater || !updateReady) return;
+  quitting = true;
+  updater.quitAndInstall(true, true);   // silent install, then start again
 }
 
 function createTray() {
@@ -560,6 +605,7 @@ app.whenReady().then(async () => {
   createWindow(firstPage(await loadProfile()));
   createTray();
   if (!SMOKE) createPhoneView();
+  startUpdates();
   await loadPending();
 
   if (SMOKE) {
