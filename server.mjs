@@ -702,6 +702,9 @@ const server = createServer(async (req, res) => {
           }
           // Connect to Claude: the token and how to add the connector to each app.
           if (action === 'connectorInfo') return json(res, 200, { ok: true, ...connectorSetup() });
+          // Copied by the app itself: works without window focus, and the token
+          // never passes through the page.
+          if (action === 'connectorCopy') { if (!host?.copyText) throw new Error('only in the desktop app'); host.copyText(connectorSetup().command); return json(res, 200, { ok: true }); }
           if (action === 'connectorNewToken') { connector.newToken(); return json(res, 200, { ok: true, ...connectorSetup() }); }
           if (action === 'connectorDesktop') {
             if (!host?.openFile) throw new Error('only in the desktop app');

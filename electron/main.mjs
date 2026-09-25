@@ -4,7 +4,7 @@
 // running), opens it in a sandboxed window, and adds what a browser tab can't:
 // the phone overlay, tray icon with a pending badge, native notifications for
 // new messages, close-to-tray, and an opt-in launch-at-login.
-import { app, BrowserWindow, WebContentsView, Tray, Menu, Notification, nativeTheme, shell, dialog, session, ipcMain } from 'electron';
+import { app, BrowserWindow, WebContentsView, Tray, Menu, Notification, nativeTheme, shell, dialog, session, ipcMain, clipboard } from 'electron';
 import { randomBytes } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
@@ -523,6 +523,7 @@ globalThis.__triageHost = {
   openFolder: (dir) => { mkdirSync(dir, { recursive: true }); shell.openPath(dir); },
   // Resolves to '' when opened, else the reason (e.g. no app for .mcpb files).
   openFile: (file) => shell.openPath(file),
+  copyText: (text) => clipboard.writeText(String(text)),
   createShortcut: () => createDesktopShortcut(),
   pickFile: async ({ title, filters }) => {
     const r = await dialog.showOpenDialog(win && !win.isDestroyed() ? win : undefined, {

@@ -533,8 +533,12 @@ $('#cdInstall').onclick = async () => {
 };
 $('#cmdCopy').onclick = async () => {
   try {
-    const j = await api('/api/settings/action', { action: 'connectorInfo' });
-    await navigator.clipboard.writeText(j.command);
+    // The app copies it (no focus needed); a plain browser tab copies itself.
+    if (meta.host) await api('/api/settings/action', { action: 'connectorCopy' });
+    else {
+      const j = await api('/api/settings/action', { action: 'connectorInfo' });
+      await navigator.clipboard.writeText(j.command).catch(() => { throw new Error('Could not copy. Try again with this window in front.'); });
+    }
     toast('Command copied. It includes your token: keep it private.');
   } catch (e) { toast(e.message, true); }
 };
