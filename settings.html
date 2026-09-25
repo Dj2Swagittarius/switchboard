@@ -246,6 +246,8 @@ button.bad{border-color:var(--urgent);color:var(--urgent)}
       <button id="cdInstall">Install in Claude Desktop</button></div>
     <div class="row"><div class="lbl"><b>Claude Code</b><span>Run this once in a terminal to add the connector.</span></div>
       <button id="cmdCopy">Copy command</button></div>
+    <div class="row"><div class="lbl"><b>Connection</b><span id="connState">Shows whether a Claude app has reached Switchboard.</span></div>
+      <button id="connCheck">Check connection</button></div>
     <div class="row"><div class="lbl"><b>Connector token</b><span id="tokState">Lets only your Claude apps reach Switchboard. A new token disconnects them until they are added again.</span></div>
       <button class="danger" id="tokNew">New token</button></div>
     <div class="row"><div class="lbl"><b>Keep it running</b><span>In Cowork or Claude Code you can schedule "triage my Switchboard inbox" every 15 minutes, and "write my Switchboard daily recap" each morning.</span></div></div>
@@ -526,8 +528,10 @@ $('#ccTest').onclick = () => testing($('#ccTest'), async () => {
 // ---- Connect to Claude ----------------------------------------------------------------
 $('#cdInstall').onclick = async () => {
   try {
-    await api('/api/settings/action', { action: 'connectorDesktop' });
-    $('#cdState').textContent = 'Opened in Claude Desktop: press Install there. Cowork uses the same connector.';
+    const j = await api('/api/settings/action', { action: 'connectorDesktop' });
+    $('#cdState').textContent = j.manual
+      ? 'Shown in File Explorer. In Claude Desktop open Settings → Extensions → Advanced settings → Install Extension…, and choose Switchboard.mcpb (or drag it onto the Extensions page).'
+      : 'Opened in Claude Desktop: press Install there. Cowork uses the same connector.';
     $('#cdState').className = 'ok';
   } catch (e) { $('#cdState').textContent = e.message; $('#cdState').className = 'bad'; }
 };
@@ -542,6 +546,36 @@ $('#cmdCopy').onclick = async () => {
     toast('Command copied. It includes your token: keep it private.');
   } catch (e) { toast(e.message, true); }
 };
+// Switchboard can't call the Claude apps; it can say which one last reached
+// it (a Claude app checks in as soon as it starts the connector).
+function ago(iso) {
+  const s = Math.max(0, (Date.now() - Date.parse(iso)) / 1000);
+  if (s < 60) return 'just now';
+  if (s < 3600) return Math.round(s / 60) + ' min ago';
+  if (s < 86400) return Math.round(s / 3600) + ' h ago';
+  return new Date(iso).toLocaleString();
+}
+async function checkConnection() {
+  const j = await api('/api/settings/action', { action: 'connectorStatus' });
+  if (!j.ready) return { ok: false, text: 'The connector only works in the desktop app.' };
+  if (j.rejected) return { ok: false, text: `${j.rejected.app} tried to connect ${ago(j.rejected.at)} with an old token. Add the connector to it again.` };
+  if (!j.last) return { ok: false, text: 'No Claude app has connected yet. Install the connector above, then restart Claude Desktop or start a new Claude Code session.' };
+  return { ok: true, text: `Connected: ${j.last.app} ${j.last.did} ${ago(j.last.at)}.` };
+}
+async function showConnection() {
+  try { const r = await checkConnection(); $('#connState').textContent = r.text; $('#connState').className = r.ok ? 'ok' : 'bad'; }
+  catch (e) { $('#connState').textContent = e.message; $('#connState').className = 'bad'; }
+}
+$('#connCheck').onclick = async () => {
+  const btn = $('#connCheck');
+  btn.disabled = true; btn.textContent = 'Checking…';
+  await showConnection();
+  const ok = $('#connState').className === 'ok';
+  btn.textContent = ok ? '✓ Connected' : '✗ Not connected'; btn.className = ok ? 'ok' : 'bad'; btn.disabled = false;
+  clearTimeout(btn._t);
+  btn._t = setTimeout(() => { btn.textContent = 'Check connection'; btn.className = ''; }, 5000);
+};
+
 $('#tokNew').onclick = async () => {
   if (!(await ask('Make a new connector token?', 'Claude apps using the old one stop working until you add the connector again.', 'New token'))) return;
   try {
@@ -777,6 +811,7 @@ $('#testUrg').onclick = () => api('/api/settings/action', { action: 'testNotify'
   // Model list from the AI platform in the background — the page shouldn't wait
   // on it. Skipped while the AI section is hidden (no account).
   if (platformOn() && (!cloud(prov()) || meta.account.ai?.[prov()])) loadModels();
+  if (platformOn()) showConnection();
 })();
 </script>
 <script src="/dialpad.js"></script>

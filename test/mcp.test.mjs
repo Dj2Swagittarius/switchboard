@@ -13,9 +13,10 @@ before(async () => {
   server = createServer((req, res) => {
     let body = ''; req.on('data', d => body += d);
     req.on('end', () => {
-      seen.push({ url: req.url, method: req.method, body });
+      seen.push({ url: req.url, method: req.method, body, client: req.headers['x-switchboard-client'] });
       if (req.headers.authorization !== 'Bearer ' + TOKEN) { res.writeHead(401); return res.end('{}'); }
       const send = (code, j) => { res.writeHead(code, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(j)); };
+      if (req.url === '/api/connector/hello') return send(200, { ok: true });
       if (req.url === '/api/connector/instructions') return send(200, { triage: { instructions: 'BE BRIEF', schema:
         { type: 'object', properties: { urgency: { type: 'string', enum: ['low', 'high'] } }, required: ['urgency'] } },
         recap: { instructions: 'R', schema: { type: 'object' } } });
@@ -52,6 +53,8 @@ test('initialize, tools, prompts, calls', async () => {
     const init = await c.rpc('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 't', version: '1' } });
     assert.equal(init.result.protocolVersion, '2025-06-18');
     assert.equal(init.result.serverInfo.name, 'switchboard');
+    await new Promise(r => setTimeout(r, 200));
+    assert.deepEqual(seen.find(x => x.url === '/api/connector/hello')?.client, 't 1');
     const tools = (await c.rpc('tools/list', {})).result.tools;
     assert.deepEqual(tools.map(t => t.name), ['list_pending', 'save_triage', 'get_thread', 'get_day', 'save_recap']);
     assert.deepEqual(tools[1].inputSchema.required, ['id', 'urgency']);

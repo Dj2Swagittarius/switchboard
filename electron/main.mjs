@@ -524,6 +524,7 @@ globalThis.__triageHost = {
   // Resolves to '' when opened, else the reason (e.g. no app for .mcpb files).
   openFile: (file) => shell.openPath(file),
   copyText: (text) => clipboard.writeText(String(text)),
+  revealFile: (file) => shell.showItemInFolder(file),
   createShortcut: () => createDesktopShortcut(),
   pickFile: async ({ title, filters }) => {
     const r = await dialog.showOpenDialog(win && !win.isDestroyed() ? win : undefined, {

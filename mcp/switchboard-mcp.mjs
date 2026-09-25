@@ -23,13 +23,18 @@ const NL = '\n';
 
 class Problem extends Error {}
 
+// Which Claude app started us (from initialize), sent with every call so
+// Switchboard's Check connection can say who is connected.
+let client = 'unknown';
+
 // ---- Switchboard -----------------------------------------------------------------
 async function call(path, { method = 'GET', body, raw = false } = {}) {
   if (!TOKEN) throw new Problem('No Switchboard token is set. Reconnect from Switchboard → Settings → Connect to Claude.');
   let r;
   try {
     r = await fetch(BASE + '/api/connector/' + path, {
-      method, headers: { Authorization: 'Bearer ' + TOKEN, ...(body ? { 'Content-Type': 'application/json' } : {}) },
+      method, headers: { Authorization: 'Bearer ' + TOKEN, 'X-Switchboard-Client': client,
+                         ...(body ? { 'Content-Type': 'application/json' } : {}) },
       body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(180e3),
     });
   } catch {
@@ -192,6 +197,9 @@ async function handle(req) {
     let result;
     switch (method) {
       case 'initialize':
+        client = [params.clientInfo?.name, params.clientInfo?.version].filter(Boolean).join(' ').replace(/[^\w .@/+-]/g, '').slice(0, 80) || 'unknown';
+        // Check in right away, so the link shows as working before any chat.
+        call('hello', { method: 'POST', body: {} }).catch(() => {});
         result = {
           protocolVersion: PROTOCOLS.includes(params.protocolVersion) ? params.protocolVersion : PROTOCOLS[0],
           capabilities: { tools: {}, prompts: {} },

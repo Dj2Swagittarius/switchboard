@@ -66,3 +66,20 @@ test('Claude Desktop bundle unzips to a valid manifest and the script', async ()
   assert.equal(m.server.mcp_config.env.SWITCHBOARD_TOKEN, 'a'.repeat(64));
   assert.ok(readFileSync(join(dir, 'out', 'server', 'switchboard-mcp.mjs')).equals(script));
 });
+
+test('status reports the last Claude app and a newer rejected token', () => {
+  assert.equal(connector.status().last, null);
+  connector.noteContact({ headers: { 'x-switchboard-client': 'claude-ai 0.14.1' } }, 'hello');
+  let s = connector.status();
+  assert.equal(s.ready, true);
+  assert.equal(s.last.app, 'Claude Desktop');
+  assert.equal(s.last.did, 'connected');
+  assert.equal(s.rejected, null);
+  connector.authorized({ headers: { authorization: 'Bearer old', 'x-switchboard-client': 'claude-code 2.1' } });
+  s = connector.status();
+  assert.equal(s.rejected.app, 'Claude Code');
+  connector.noteContact({ headers: { 'x-switchboard-client': 'claude-code 2.1' } }, 'triage');
+  s = connector.status();
+  assert.equal(s.rejected, null);
+  assert.equal(s.last.did, 'saved triage');
+});

@@ -538,6 +538,8 @@ const server = createServer(async (req, res) => {
       if (!connector.authorized(req)) return json(res, 401, { error: 'The Switchboard token is wrong or has changed.' });
       const route = p.slice('/api/connector/'.length);
       const get = req.method === 'GET', post = req.method === 'POST';
+      connector.noteContact(req, route);
+      if (route === 'hello' && post) return json(res, 200, { ok: true });
       if (route === 'instructions' && get) {
         return json(res, 200, { provider: ai.provider(),
           triage: { instructions: triageInstructions(), schema: TRIAGE_SCHEMA },
@@ -710,10 +712,14 @@ const server = createServer(async (req, res) => {
             if (!host?.openFile) throw new Error('only in the desktop app');
             const version = JSON.parse(await readFile(new URL('./package.json', import.meta.url), 'utf8')).version;
             const file = await writeDesktopBundle(version);
+            // The Microsoft Store build of Claude Desktop doesn't claim .mcpb
+            // files, so opening can fail: then show the file for its
+            // Extensions screen instead.
             const err = await host.openFile(file);
-            if (err) throw new Error('Could not open the connector file (' + err + '). Is Claude Desktop installed? The file is ' + file);
+            if (err) { host.revealFile(file); return json(res, 200, { ok: true, file, manual: true }); }
             return json(res, 200, { ok: true, file });
           }
+          if (action === 'connectorStatus') return json(res, 200, { ok: true, ...connector.status() });
           if (action === 'claudeCodeStatus') return json(res, 200, { ok: true, ...(await claudecode.status()) });
           if (action === 'clearCache') {
             invalidate(''); mediaCache.clear(); mediaBytes = 0;
