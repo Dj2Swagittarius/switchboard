@@ -378,11 +378,12 @@ const readRaw = (req, max, tooBig = 'That file is too large to fax.') => new Pro
 // Claude Desktop, a bundle with the script inside that its built-in Node runs.
 const MCP_SCRIPT = new URL('./mcp/switchboard-mcp.mjs', import.meta.url);
 function connectorSetup() {
-  const env = { SWITCHBOARD_URL: `http://127.0.0.1:${PORT}`, SWITCHBOARD_TOKEN: connector.token() };
-  const asNode = process.versions.electron ? { ELECTRON_RUN_AS_NODE: '1' } : {};
+  const env = { ...(process.versions.electron ? { ELECTRON_RUN_AS_NODE: '1' } : {}),
+                SWITCHBOARD_URL: `http://127.0.0.1:${PORT}`, SWITCHBOARD_TOKEN: connector.token() };
   const script = unpackedPath('mcp', 'switchboard-mcp.mjs');
-  const flags = Object.entries({ ...asNode, ...env }).map(([k, v]) => `-e ${k}=${v}`).join(' ');
-  return { token: env.SWITCHBOARD_TOKEN, command: `claude mcp add switchboard --scope user ${flags} -- "${process.execPath}" "${script}"` };
+  const flags = Object.entries(env).map(([k, v]) => `-e ${k}=${v}`).join(' ');
+  return { token: env.SWITCHBOARD_TOKEN, env, exe: process.execPath, script,
+           command: `claude mcp add switchboard --scope user ${flags} -- "${process.execPath}" "${script}"` };
 }
 // Written to the data folder (it holds the token) and opened, which starts
 // Claude Desktop's install dialog.
@@ -713,11 +714,18 @@ const server = createServer(async (req, res) => {
             const version = JSON.parse(await readFile(new URL('./package.json', import.meta.url), 'utf8')).version;
             const file = await writeDesktopBundle(version);
             // The Microsoft Store build of Claude Desktop doesn't claim .mcpb
-            // files, so opening can fail: then show the file for its
-            // Extensions screen instead.
+            // files, and Windows may "open" it with something else without an
+            // error, so the file is always shown too, for the Extensions screen.
             const err = await host.openFile(file);
-            if (err) { host.revealFile(file); return json(res, 200, { ok: true, file, manual: true }); }
-            return json(res, 200, { ok: true, file });
+            host.revealFile(file);
+            return json(res, 200, { ok: true, file, opened: !err });
+          }
+          // Adds the connector to Claude Code by running its own `claude mcp`
+          // commands, replacing an earlier entry (and its old token).
+          if (action === 'connectorClaudeCode') {
+            const s = connectorSetup();
+            await claudecode.addMcp({ name: 'switchboard', env: s.env, command: s.exe, args: [s.script] });
+            return json(res, 200, { ok: true });
           }
           if (action === 'connectorStatus') return json(res, 200, { ok: true, ...connector.status() });
           if (action === 'claudeCodeStatus') return json(res, 200, { ok: true, ...(await claudecode.status()) });

@@ -1,9 +1,17 @@
+import { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
 // Stands in for the claude CLI. FAKE_CLAUDE picks the behaviour.
 let input = '';
 process.stdin.on('data', d => input += d).on('end', () => {
   const args = process.argv.slice(2);
   const mode = process.env.FAKE_CLAUDE || 'ok';
   if (args[0] === '--version') { console.log('9.9.9 (Claude Code)'); return; }
+  if (args[0] === 'mcp') {
+    const log = process.env.FAKE_CLAUDE_LOG;
+    if (log) require('node:fs').appendFileSync(log, JSON.stringify(args) + String.fromCharCode(10));
+    if (args[1] === 'remove') { process.stderr.write('No MCP server found'); process.exit(1); }
+    return;
+  }
   const out = (j) => process.stdout.write(JSON.stringify({ type: 'result', ...j }));
   if (mode === 'ok') {
     const schema = JSON.parse(args[args.indexOf('--json-schema') + 1]);

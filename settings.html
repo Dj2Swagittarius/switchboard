@@ -244,8 +244,8 @@ button.bad{border-color:var(--urgent);color:var(--urgent)}
     <div class="row"><div class="lbl"><b>Use Claude without an API key</b><span>Lets Claude Desktop, Cowork or Claude Code read texts waiting in Triage, save triage and draft replies, and write the daily recap, on your own Claude plan. Claude can't send anything: you still press Send. Choose "Claude app" as the AI platform above so new texts wait for Claude.</span></div></div>
     <div class="row"><div class="lbl"><b>Claude Desktop and Cowork</b><span id="cdState">Opens Claude Desktop's install screen for the Switchboard connector.</span></div>
       <button id="cdInstall">Install in Claude Desktop</button></div>
-    <div class="row"><div class="lbl"><b>Claude Code</b><span>Run this once in a terminal to add the connector.</span></div>
-      <button id="cmdCopy">Copy command</button></div>
+    <div class="row"><div class="lbl"><b>Claude Code</b><span id="ccAddState">Adds the connector to Claude Code on this PC (replacing an older one). Or copy the command to run it yourself.</span></div>
+      <button id="ccAdd">Add to Claude Code</button><button id="cmdCopy">Copy command</button></div>
     <div class="row"><div class="lbl"><b>Connection</b><span id="connState">Shows whether a Claude app has reached Switchboard.</span></div>
       <button id="connCheck">Check connection</button></div>
     <div class="row"><div class="lbl"><b>Connector token</b><span id="tokState">Lets only your Claude apps reach Switchboard. A new token disconnects them until they are added again.</span></div>
@@ -528,12 +528,20 @@ $('#ccTest').onclick = () => testing($('#ccTest'), async () => {
 // ---- Connect to Claude ----------------------------------------------------------------
 $('#cdInstall').onclick = async () => {
   try {
-    const j = await api('/api/settings/action', { action: 'connectorDesktop' });
-    $('#cdState').textContent = j.manual
-      ? 'Shown in File Explorer. In Claude Desktop open Settings → Extensions → Advanced settings → Install Extension…, and choose Switchboard.mcpb (or drag it onto the Extensions page).'
-      : 'Opened in Claude Desktop: press Install there. Cowork uses the same connector.';
+    await api('/api/settings/action', { action: 'connectorDesktop' });
+    $('#cdState').textContent = 'If Claude Desktop shows an Install screen, press Install. If not: Switchboard.mcpb is shown in File Explorer; in Claude Desktop open Settings → Extensions and drag it in (or Advanced settings → Install Extension…). Then press Check connection.';
     $('#cdState').className = 'ok';
   } catch (e) { $('#cdState').textContent = e.message; $('#cdState').className = 'bad'; }
+};
+$('#ccAdd').onclick = async () => {
+  const btn = $('#ccAdd'), st = $('#ccAddState');
+  btn.disabled = true; st.className = ''; st.textContent = 'Adding to Claude Code…';
+  try {
+    await api('/api/settings/action', { action: 'connectorClaudeCode' });
+    st.textContent = 'Added. Start a new Claude Code session and ask it to "triage my Switchboard inbox".'; st.className = 'ok';
+    setTimeout(showConnection, 1500);
+  } catch (e) { st.textContent = e.message; st.className = 'bad'; }
+  btn.disabled = false;
 };
 $('#cmdCopy').onclick = async () => {
   try {

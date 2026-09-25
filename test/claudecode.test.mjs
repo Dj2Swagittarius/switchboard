@@ -36,3 +36,16 @@ test('status reports the version', async () => {
   process.env.SWITCHBOARD_CLAUDE = 'C:/nope/claude.exe';
   assert.match((await cc.status()).error, /isn't installed/);
 });
+
+test('addMcp removes the old entry, then adds with env flags', async () => {
+  const { mkdtempSync, readFileSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  process.env.SWITCHBOARD_CLAUDE = fileURLToPath(new URL('./fixtures/fake-claude.mjs', import.meta.url));
+  const log = join(mkdtempSync(join(tmpdir(), 'switchboard-test-')), 'calls.log');
+  process.env.FAKE_CLAUDE_LOG = log;
+  await cc.addMcp({ name: 'switchboard', env: { A: '1', B: 'x y' }, command: 'C:/Apps/Switch board.exe', args: ['C:/x/mcp.mjs'] });
+  const calls = readFileSync(log, 'utf8').trim().split('\n').map(JSON.parse);
+  assert.deepEqual(calls[0], ['mcp', 'remove', 'switchboard', '-s', 'user']);
+  assert.deepEqual(calls[1], ['mcp', 'add', 'switchboard', '--scope', 'user', '-e', 'A=1', '-e', 'B=x y', '--', 'C:/Apps/Switch board.exe', 'C:/x/mcp.mjs']);
+});
