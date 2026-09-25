@@ -132,6 +132,7 @@ function guard(w) {
   };
   w.webContents.setWindowOpenHandler(({ url }) => { external(url); return { action: 'deny' }; });
   w.webContents.on('will-navigate', (e, url) => {
+    if (url === ORIGIN + '/__update/install') { e.preventDefault(); installUpdate(); return; }   // the update banner
     if (!url.startsWith(ORIGIN)) { e.preventDefault(); external(url); }
   });
 }
@@ -255,6 +256,7 @@ function createWindow(start) {
   });
 
   guard(win);
+  win.webContents.on('did-finish-load', () => showUpdateBanner());
 
   win.on('close', (e) => {
     if (quitting || SMOKE) return;
@@ -346,6 +348,7 @@ async function startUpdates() {
   updater.on('update-downloaded', (i) => {
     updateReady = i.version; updateNote = '';
     refreshTray();
+    showUpdateBanner();
     if (!Notification.isSupported()) return;
     const n = new Notification({ title: `Switchboard ${i.version} is ready`,
       body: 'Click to restart and update now, or it installs next time Switchboard closes.', icon: appIcon(), silent: true });
@@ -365,8 +368,19 @@ async function checkUpdates(byHand = false) {
   } catch (e) { console.error('updates: ' + e.message); }
   if (updateNote === 'Checking for updates…') { updateNote = ''; refreshTray(); }
 }
-function installUpdate() {
+// The banner in the main window (nav.js), shown again on every page load.
+function showUpdateBanner() {
+  if (!updateReady || !win || win.isDestroyed()) return;
+  win.webContents.executeJavaScript(`window.switchboardUpdate?.(${JSON.stringify(updateReady)})`).catch(() => {});
+}
+async function installUpdate() {
   if (!updater || !updateReady) return;
+  const busy = await phone?.webContents.executeJavaScript('window.phoneBusy?.() ?? false').catch(() => false);
+  if (busy) {
+    dialog.showMessageBox(win, { type: 'info', title: 'Switchboard', message: 'Finish your call first',
+      detail: 'Restarting now would end the call. Update after it, or it installs next time Switchboard closes.' });
+    return;
+  }
   quitting = true;
   updater.quitAndInstall(true, true);   // silent install, then start again
 }

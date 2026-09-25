@@ -248,6 +248,42 @@
   // follows at once instead of on the next 30s poll.
   window.switchboardNav = { refresh };
 
+  // Update banner. The app calls this on every page load once a new version
+  // has downloaded. "Restart now" goes to an address the app itself catches
+  // (and refuses during a call); "Later" hides it until the app restarts, and
+  // the update installs then anyway.
+  window.switchboardUpdate = (version) => {
+    const v = String(version ?? '').replace(/[^\w.-]/g, '');
+    if (!v || document.getElementById('sb-update')) return;
+    try { if (sessionStorage.getItem('sb-update-later') === v) return; } catch {}
+    const bar = document.createElement('div');
+    bar.id = 'sb-update';
+    bar.setAttribute('role', 'status');
+    bar.style.cssText = 'position:fixed;right:18px;bottom:18px;z-index:1200;display:flex;align-items:center;gap:12px;'
+      + 'padding:12px 14px 12px 16px;border-radius:12px;background:var(--panel,#171b21);color:var(--ink,#e6e9ee);'
+      + 'border:1px solid var(--accent,#5b8dff);box-shadow:0 14px 40px rgba(0,0,0,.45);'
+      + 'font:14px/1.35 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;max-width:calc(100vw - 36px)';
+    const txt = document.createElement('div');
+    const b = document.createElement('b'); b.textContent = `Switchboard ${v} is ready`;
+    const s = document.createElement('span'); s.textContent = 'Restart to update. Takes a few seconds.';
+    s.style.cssText = 'display:block;font-size:12.5px;color:var(--muted,#8b95a1)';
+    txt.append(b, s);
+    const btn = (label, primary) => {
+      const x = document.createElement('button');
+      x.type = 'button'; x.textContent = label;
+      x.style.cssText = 'font-family:inherit;font-weight:600;font-size:13px;padding:7px 12px;border-radius:8px;cursor:pointer;white-space:nowrap;'
+        + (primary ? 'background:var(--accent,#5b8dff);color:#fff;border:1px solid var(--accent,#5b8dff)'
+                   : 'background:none;color:var(--muted,#8b95a1);border:1px solid var(--line,#252b33)');
+      return x;
+    };
+    const later = btn('Later', false), now = btn('Restart now', true);
+    later.onclick = () => { try { sessionStorage.setItem('sb-update-later', v); } catch {} bar.remove(); };
+    now.onclick = () => { now.disabled = true; now.textContent = 'Restarting…'; location.href = '/__update/install';
+      setTimeout(() => { now.disabled = false; now.textContent = 'Restart now'; }, 4000); };
+    bar.append(txt, later, now);
+    (document.body || document.documentElement).appendChild(bar);
+  };
+
   function start() {
     firstProfile.then((p) => {
       profile = p;

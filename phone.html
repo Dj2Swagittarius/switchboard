@@ -330,6 +330,8 @@ let focus = 'p';         // consult: who you're talking to, 'p' (main) or 's' (s
 let state = 'starting';  // unconfigured | connecting | registered | failed | offline
 let detail = '';
 let call = null;         // { dir: 'in'|'out', number, name, answered, startedAt }
+// For the app: don't restart to update in the middle of a call (or a ring).
+window.phoneBusy = () => !!call;
 let tick = null;
 let ringVolume = 60;     // 0-100, from Settings
 
