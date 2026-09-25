@@ -429,11 +429,16 @@ function broadcast() {
 }
 
 // ---- contacts (for caller names) ------------------------------------------------
-let book = null;
+// Read again after a minute, so a contact named since this window opened gets
+// its name on the next call. A failed read isn't kept: the next call retries.
+let book = null, bookAt = 0;
 async function loadBook() {
-  if (book) return book;
-  try { book = (await (await fetch('/api/directory')).json()).contacts || []; } catch { book = []; }
-  return book;
+  if (book && Date.now() - bookAt < 60e3) return book;
+  try {
+    const j = await (await fetch('/api/directory')).json();
+    if (Array.isArray(j.contacts)) { book = j.contacts; bookAt = Date.now(); }
+  } catch {}
+  return book || [];
 }
 // Everyone else on the account, with extensions, and the account's park codes.
 // Only with a signed-in account; otherwise (409) there is no company list.

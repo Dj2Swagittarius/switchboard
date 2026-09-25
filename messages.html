@@ -668,6 +668,38 @@ function header(title, sub) {
   return h;
 }
 
+// Save all photos: the server gathers every photo before the zip starts, which
+// can take a while, so the button says what it's doing until the file is handed
+// to the download (which then saves it to the chosen folder, as a link would).
+async function saveZip(btn) {
+  if (btn.dataset.busy) return;
+  const show = (text, color = 'var(--muted)') => { btn.textContent = text; btn.style.color = color; };
+  btn.dataset.busy = '1';
+  btn.style.opacity = '.7'; btn.style.cursor = 'progress';
+  show('Saving photos…');
+  let done, color;
+  try {
+    const r = await fetch(btn.href);
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'HTTP ' + r.status);
+    const blob = await r.blob();
+    const cd = r.headers.get('Content-Disposition') || '';
+    const name = decodeURIComponent((cd.match(/filename\*=UTF-8''([^;]+)/) || [])[1] || '') || 'photos.zip';
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 60e3);
+    const failed = Number(r.headers.get('X-Photos-Failed')) || 0;
+    done = failed ? `Saved — ${failed} couldn't be fetched` : 'Saved ✓';
+    color = failed ? 'var(--high)' : 'var(--ok)';
+  } catch (e) {
+    done = "Couldn't save — " + (e.message || 'try again');
+    color = 'var(--urgent)';
+  }
+  btn.style.opacity = ''; btn.style.cursor = 'pointer';
+  show(done, color);
+  setTimeout(() => { delete btn.dataset.busy; show(btn.dataset.label || 'Save all photos'); }, 3500);
+}
+
 async function openConv(c) {
   open = { line: c.line, remote: c.remote, name: c.name };
   openSig = '';
@@ -684,8 +716,9 @@ async function openConv(c) {
   photosBtn.href = '/photos?' + q;
   const zipBtn = el('a', '', 'Save all photos'); zipBtn.id = 'thzip';
   zipBtn.href = '/api/photos/zip?' + q; zipBtn.setAttribute('download', '');
+  zipBtn.onclick = (e) => { e.preventDefault(); saveZip(zipBtn); };
   for (const b of [photosBtn, zipBtn]) {
-    b.style.cssText = 'display:none;color:var(--muted);text-decoration:none;font-size:13px;padding:6px 10px;border:1px solid var(--line);border-radius:7px';
+    b.style.cssText = 'display:none;color:var(--muted);text-decoration:none;font-size:13px;padding:6px 10px;border:1px solid var(--line);border-radius:7px;cursor:pointer';
     h.appendChild(b);
   }
   const callBtn = el('button', '', 'Call');
@@ -796,7 +829,8 @@ function renderThread(list, want, scroll) {
   }
   const nPhotos = list.reduce((n, m) => n + m.media.filter(x => x.mime.startsWith('image/')).length, 0);
   for (const id of ['#thphotos', '#thzip']) { const b = $(id); if (b) b.style.display = nPhotos ? '' : 'none'; }
-  if ($('#thzip')) $('#thzip').textContent = 'Save all ' + nPhotos + ' photo' + (nPhotos === 1 ? '' : 's');
+  if ($('#thzip')) { $('#thzip').dataset.label = 'Save all ' + nPhotos + ' photo' + (nPhotos === 1 ? '' : 's');
+    if (!$('#thzip').dataset.busy) $('#thzip').textContent = $('#thzip').dataset.label; }
   if (scroll || atBottom) box.scrollTop = box.scrollHeight;
 }
 
