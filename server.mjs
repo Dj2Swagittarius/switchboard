@@ -377,10 +377,6 @@ const readRaw = (req, max, tooBig = 'That file is too large to fax.') => new Pro
 // plain Node (ELECTRON_RUN_AS_NODE) on the unpacked MCP script, or, for
 // Claude Desktop, a bundle with the script inside that its built-in Node runs.
 const MCP_SCRIPT = new URL('./mcp/switchboard-mcp.mjs', import.meta.url);
-const MCP_TOOLS = [
-  ['list_pending', 'List texts waiting for triage'], ['save_triage', 'Save triage and a draft reply'],
-  ['get_thread', 'Read a conversation'], ['get_day', "Get a day's activity"], ['save_recap', 'Save the daily recap'],
-];
 function connectorSetup() {
   const env = { SWITCHBOARD_URL: `http://127.0.0.1:${PORT}`, SWITCHBOARD_TOKEN: connector.token() };
   const asNode = process.versions.electron ? { ELECTRON_RUN_AS_NODE: '1' } : {};
@@ -391,23 +387,8 @@ function connectorSetup() {
 // Written to the data folder (it holds the token) and opened, which starts
 // Claude Desktop's install dialog.
 async function writeDesktopBundle(version) {
-  const manifest = {
-    manifest_version: '0.3', name: 'switchboard', display_name: 'Switchboard', version,
-    description: 'Triage your Switchboard texts and write the daily recap with Claude. Replies are drafts; Claude cannot send texts.',
-    author: { name: 'Switchboard' },
-    server: { type: 'node', entry_point: 'server/switchboard-mcp.mjs', mcp_config: {
-      command: 'node', args: ['${__dirname}/server/switchboard-mcp.mjs'],
-      env: { SWITCHBOARD_URL: `http://127.0.0.1:${PORT}`, SWITCHBOARD_TOKEN: connector.token() } } },
-    tools: MCP_TOOLS.map(([name, description]) => ({ name, description })),
-    prompts: [{ name: 'triage-inbox', description: 'Triage my Switchboard inbox', text: 'Triage my Switchboard inbox.' },
-              { name: 'daily-recap', description: 'Write the Switchboard daily recap', text: 'Write my Switchboard daily recap.' }],
-    compatibility: { platforms: ['win32', 'darwin', 'linux'] },
-  };
   const file = dataPath('Switchboard.mcpb');
-  writeFileSync(file, zip([
-    { name: 'manifest.json', data: Buffer.from(JSON.stringify(manifest, null, 2)) },
-    { name: 'server/switchboard-mcp.mjs', data: await readFile(MCP_SCRIPT) },
-  ]));
+  writeFileSync(file, connector.desktopBundle({ url: `http://127.0.0.1:${PORT}`, version, script: await readFile(MCP_SCRIPT) }));
   return file;
 }
 

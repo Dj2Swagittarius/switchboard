@@ -1,7 +1,7 @@
 # Claude connector and Claude Code platform — design
 
 Date: 2026-09-25
-Status: approved design, awaiting spec review
+Status: implemented 2026-09-25
 
 ## Goal
 
@@ -90,8 +90,9 @@ The schemas move to exported constants (`llm.TRIAGE_SCHEMA`,
 
 ### MCP server
 
-`mcp/switchboard-mcp.mjs`: stdio MCP server using
-`@modelcontextprotocol/sdk`. Reads `SWITCHBOARD_URL` (default
+`mcp/switchboard-mcp.mjs`: stdio MCP server, hand-written JSON-RPC with no
+dependencies (an unpacked script can't resolve modules inside `app.asar`, and
+the same file is copied into the Claude Desktop bundle). Reads `SWITCHBOARD_URL` (default
 `http://127.0.0.1:8787`) and `SWITCHBOARD_TOKEN` from env. Each tool is a thin
 call to one route above.
 
@@ -122,15 +123,14 @@ token changed. Reconnect from Switchboard → Settings → Connect to Claude.";
 
 - `mcp/**` added to `files` and `asarUnpack` so Claude can run it with the
   bundled Node from Electron (`ELECTRON_RUN_AS_NODE=1` + Switchboard.exe).
-- `@modelcontextprotocol/sdk` added to dependencies.
 
 ### Settings → Connect to Claude
 
 New section on `settings.html`, shown for every platform choice:
 
-- **Install in Claude Desktop** — writes a `.mcpb` bundle (manifest pointing
-  at Switchboard.exe with `ELECTRON_RUN_AS_NODE=1` and the unpacked
-  `mcp/switchboard-mcp.mjs`, token in env) to the data folder and opens it,
+- **Install in Claude Desktop** — writes a `.mcpb` bundle (manifest v0.3,
+  `type: node`, the MCP script copied inside and run by Claude Desktop's
+  built-in Node, address and token in env) to the data folder and opens it,
   which starts Claude Desktop's install dialog. Covers Desktop and Cowork.
 - **Claude Code command** — a copyable line:
   `claude mcp add switchboard --env SWITCHBOARD_TOKEN=<token> -- "<exe>" "<script>"`
@@ -169,8 +169,10 @@ reports the context limit → `TooLongError`.
 One CLI call at a time: a module-level promise chain in `ai.mjs`, so a burst
 of messages queues instead of spawning many processes.
 
-`ai.isCloud('claudecode')` is true (large context, so `review.mjs` uses the
-cloud budgets). `listModels('claudecode')` returns `['sonnet','opus','haiku']`.
+`ai.isCloud()` keeps meaning "takes an API key"; a new `ai.bigContext()` is
+true for the cloud platforms, `claudecode` and `connector`, so `review.mjs`
+uses the large budgets. Only the native `claude.exe` is used (the npm
+`claude.cmd` shim can't be spawned without a shell). `listModels('claudecode')` returns `['sonnet','opus','haiku']`.
 
 ### Detection
 

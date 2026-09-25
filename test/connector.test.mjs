@@ -49,3 +49,20 @@ test('authorized checks the bearer token', () => {
   assert.equal(connector.authorized({ headers: { authorization: 'Bearer nope' } }), false);
   assert.equal(connector.authorized({ headers: {} }), false);
 });
+
+test('Claude Desktop bundle unzips to a valid manifest and the script', async () => {
+  const { execFileSync } = await import('node:child_process');
+  const { mkdtempSync, writeFileSync, readFileSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const script = readFileSync(new URL('../mcp/switchboard-mcp.mjs', import.meta.url));
+  const dir = mkdtempSync(join(tmpdir(), 'switchboard-test-mcpb-'));
+  writeFileSync(join(dir, 'x.zip'), connector.desktopBundle({ url: 'http://127.0.0.1:8787', version: '1.2.3', script }));
+  execFileSync('powershell', ['-NoProfile', '-Command', `Expand-Archive -LiteralPath '${join(dir, 'x.zip')}' -DestinationPath '${join(dir, 'out')}'`]);
+  const m = JSON.parse(readFileSync(join(dir, 'out', 'manifest.json'), 'utf8'));
+  assert.equal(m.manifest_version, '0.3');
+  assert.equal(m.server.entry_point, 'server/switchboard-mcp.mjs');
+  assert.deepEqual(m.server.mcp_config.args, ['${__dirname}/server/switchboard-mcp.mjs']);
+  assert.equal(m.server.mcp_config.env.SWITCHBOARD_TOKEN, 'a'.repeat(64));
+  assert.ok(readFileSync(join(dir, 'out', 'server', 'switchboard-mcp.mjs')).equals(script));
+});
