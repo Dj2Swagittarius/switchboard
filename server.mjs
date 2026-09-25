@@ -7,14 +7,17 @@ import * as secrets from './lib/secrets.mjs';
 import * as profile from './lib/profile.mjs';
 import { timingSafeEqual } from 'node:crypto';
 import { resolve as resolvePath, sep, extname, join as joinPath } from 'node:path';
-import { statSync, copyFileSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
+import { statSync, copyFileSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { resolveMyBoxes } from './lib/boxes.mjs';
 import { runOnce } from './lib/pipeline.mjs';
 import { sendMessage } from './lib/send.mjs';
 import { lines, primary, setActive, addLine, setPrimary, setLabel, removeLine } from './lib/lines.mjs';
 import { load as loadContacts, save as saveContacts, ROLES } from './lib/contacts.mjs';
-import { MODELS, DEFAULT_INSTRUCTIONS as TRIAGE_DEFAULT } from './lib/llm.mjs';
+import { MODELS, DEFAULT_INSTRUCTIONS as TRIAGE_DEFAULT, TRIAGE_SCHEMA, instructions as triageInstructions } from './lib/llm.mjs';
+import * as connector from './lib/connector.mjs';
+import * as claudecode from './lib/claudecode.mjs';
+import { fetchMedia as fetchMmsItem } from './lib/media.mjs';
 import * as ai from './lib/ai.mjs';
 import * as review from './lib/review.mjs';
 import { visionModel } from './lib/media.mjs';
@@ -31,7 +34,7 @@ import { photoIndex, fileName } from './lib/photos.mjs';
 import { zip } from './lib/zip.mjs';
 import { playable } from './lib/transcode.mjs';
 import * as fax from './lib/fax.mjs';
-import { dataPath, DATA_DIR } from './lib/paths.mjs';
+import { dataPath, DATA_DIR, unpackedPath } from './lib/paths.mjs';
 import * as devices from './lib/devices.mjs';
 
 // Thumbnails need an image decoder. When hosted inside the Electron app we
@@ -369,6 +372,45 @@ const readRaw = (req, max, tooBig = 'That file is too large to fax.') => new Pro
   req.on('end', () => resolve(Buffer.concat(parts)));
   req.on('error', reject);
 });
+// ---- Connect to Claude (Settings) ------------------------------------------------
+// How the Claude apps start the connector: this app's own executable run as
+// plain Node (ELECTRON_RUN_AS_NODE) on the unpacked MCP script, or, for
+// Claude Desktop, a bundle with the script inside that its built-in Node runs.
+const MCP_SCRIPT = new URL('./mcp/switchboard-mcp.mjs', import.meta.url);
+const MCP_TOOLS = [
+  ['list_pending', 'List texts waiting for triage'], ['save_triage', 'Save triage and a draft reply'],
+  ['get_thread', 'Read a conversation'], ['get_day', "Get a day's activity"], ['save_recap', 'Save the daily recap'],
+];
+function connectorSetup() {
+  const env = { SWITCHBOARD_URL: `http://127.0.0.1:${PORT}`, SWITCHBOARD_TOKEN: connector.token() };
+  const asNode = process.versions.electron ? { ELECTRON_RUN_AS_NODE: '1' } : {};
+  const script = unpackedPath('mcp', 'switchboard-mcp.mjs');
+  const flags = Object.entries({ ...asNode, ...env }).map(([k, v]) => `-e ${k}=${v}`).join(' ');
+  return { token: env.SWITCHBOARD_TOKEN, command: `claude mcp add switchboard --scope user ${flags} -- "${process.execPath}" "${script}"` };
+}
+// Written to the data folder (it holds the token) and opened, which starts
+// Claude Desktop's install dialog.
+async function writeDesktopBundle(version) {
+  const manifest = {
+    manifest_version: '0.3', name: 'switchboard', display_name: 'Switchboard', version,
+    description: 'Triage your Switchboard texts and write the daily recap with Claude. Replies are drafts; Claude cannot send texts.',
+    author: { name: 'Switchboard' },
+    server: { type: 'node', entry_point: 'server/switchboard-mcp.mjs', mcp_config: {
+      command: 'node', args: ['${__dirname}/server/switchboard-mcp.mjs'],
+      env: { SWITCHBOARD_URL: `http://127.0.0.1:${PORT}`, SWITCHBOARD_TOKEN: connector.token() } } },
+    tools: MCP_TOOLS.map(([name, description]) => ({ name, description })),
+    prompts: [{ name: 'triage-inbox', description: 'Triage my Switchboard inbox', text: 'Triage my Switchboard inbox.' },
+              { name: 'daily-recap', description: 'Write the Switchboard daily recap', text: 'Write my Switchboard daily recap.' }],
+    compatibility: { platforms: ['win32', 'darwin', 'linux'] },
+  };
+  const file = dataPath('Switchboard.mcpb');
+  writeFileSync(file, zip([
+    { name: 'manifest.json', data: Buffer.from(JSON.stringify(manifest, null, 2)) },
+    { name: 'server/switchboard-mcp.mjs', data: await readFile(MCP_SCRIPT) },
+  ]));
+  return file;
+}
+
 const redirect = (res, to) => { res.writeHead(302, { Location: to, 'Cache-Control': 'no-store' }); res.end(); };
 
 const server = createServer(async (req, res) => {
@@ -508,6 +550,73 @@ const server = createServer(async (req, res) => {
       return res.end(await readFile(new URL('./settings.html', import.meta.url)));
     }
 
+    // ---- Claude connector (lib/connector.mjs, mcp/switchboard-mcp.mjs) ----------
+    // For the MCP server the person's Claude app runs. Its own token instead of
+    // the app key: Claude runs as a separate program.
+    if (p.startsWith('/api/connector/')) {
+      if (!connector.authorized(req)) return json(res, 401, { error: 'The Switchboard token is wrong or has changed.' });
+      const route = p.slice('/api/connector/'.length);
+      const get = req.method === 'GET', post = req.method === 'POST';
+      if (route === 'instructions' && get) {
+        return json(res, 200, { provider: ai.provider(),
+          triage: { instructions: triageInstructions(), schema: TRIAGE_SCHEMA },
+          recap: { instructions: review.RECAP_INSTRUCTIONS, schema: review.RECAP_SCHEMA } });
+      }
+      if (route === 'pending' && get) {
+        const items = connector.pending(url.searchParams.get('limit')).map(e => ({
+          id: e.id, from: e.remote, name: e.name, known_role: e.known_role, line: e.local,
+          at: new Date(e.at).toISOString(), text: e.text,
+          history: (e.history ?? []).map(h => ({ at: new Date(h.at).toISOString(), from: h.inbound ? 'THEM' : 'US', text: h.text })),
+          media: (e.media ?? []).map((m, n) => ({ n, mime: m.mime, image: /^image\//.test(m.mime) && !!m.url })),
+        }));
+        let note = null;
+        if (ai.provider() !== 'connector') note = 'Switchboard is not in connector mode, so new texts are triaged in the app, not here. To use Claude: Switchboard → Settings → AI platform → the Claude app.';
+        else if (settings.get('triage.enabled') !== true) note = 'Triage is turned off in Switchboard (Settings → Triage new messages), so new texts are not being queued.';
+        return json(res, 200, { note, items });
+      }
+      if (route === 'triage' && post) {
+        const r = connector.saveTriage(String(url.searchParams.get('id') ?? ''), await readBody(req));
+        if (!r.ok) return json(res, r.code, { errors: r.errors });
+        push('queue', store.pending());
+        return json(res, 200, { ok: true, remaining: connector.pending(50).length });
+      }
+      if (!platformUp()) return json(res, 409, { error: 'Switchboard is not signed in to an account.' });
+      if (route === 'media' && get) {
+        const e = store.all().find(x => x.id === url.searchParams.get('id'));
+        const m = e?.media?.[Number(url.searchParams.get('n'))];
+        if (!m?.url || !/^image\//.test(m.mime)) return json(res, 404, { error: 'No such photo.' });
+        const got = await fetchMmsItem(session, { ooma_media_url: m.url, media: { mime_type: m.mime } }, e.local);
+        if (!got) return json(res, 502, { error: 'The photo could not be fetched.' });
+        let { buf, mime } = got;
+        // Claude reads images up to ~1568px on the long edge; send no more.
+        if (nativeImage) {
+          const img = nativeImage.createFromBuffer(buf), { width, height } = img.getSize();
+          if (width && height) {
+            const k = Math.min(1, 1568 / Math.max(width, height));
+            buf = (k < 1 ? img.resize({ width: Math.round(width * k), height: Math.round(height * k), quality: 'good' }) : img).toJPEG(85);
+            mime = 'image/jpeg';
+          }
+        }
+        res.writeHead(200, { 'Content-Type': mime, 'Content-Length': buf.length });
+        return res.end(buf);
+      }
+      if (route === 'thread' && get) {
+        const msgs = await threadFor(session, String(url.searchParams.get('with') ?? ''));
+        return json(res, 200, { messages: msgs.slice(-50).map(m => ({ at: new Date(m.at).toISOString(), inbound: m.inbound, text: m.forModel() })) });
+      }
+      const day = url.searchParams.get('date');
+      if ((route === 'day' || route === 'recap') && (!review.isDay(day) || day >= review.dayKey()))
+        return json(res, 400, { error: 'date must be a finished day, YYYY-MM-DD.' });
+      if (route === 'day' && get) return json(res, 200, await review.connectorDay(session, day));
+      if (route === 'recap' && post) {
+        const r = await review.saveConnectorRecap(session, day, await readBody(req));
+        if (!r.ok) return json(res, 400, { errors: r.errors });
+        push('review', { day, empty: false, headline: r.review.recap.headline });
+        return json(res, 200, { ok: true });
+      }
+      return json(res, 404, { error: 'not found' });
+    }
+
     if (p.startsWith('/api/settings')) {
       if (!fromApp(req)) return json(res, 403, { error: 'Open this from the Switchboard app.' });
       const host = globalThis.__triageHost ?? null;
@@ -610,6 +719,18 @@ const server = createServer(async (req, res) => {
             if (out?.ok !== true) throw new Error('The model answered, but not as expected.');
             return json(res, 200, { ok: true, model: ai.textModel(), ms: Date.now() - t0 });
           }
+          // Connect to Claude: the token and how to add the connector to each app.
+          if (action === 'connectorInfo') return json(res, 200, { ok: true, ...connectorSetup() });
+          if (action === 'connectorNewToken') { connector.newToken(); return json(res, 200, { ok: true, ...connectorSetup() }); }
+          if (action === 'connectorDesktop') {
+            if (!host?.openFile) throw new Error('only in the desktop app');
+            const version = JSON.parse(await readFile(new URL('./package.json', import.meta.url), 'utf8')).version;
+            const file = await writeDesktopBundle(version);
+            const err = await host.openFile(file);
+            if (err) throw new Error('Could not open the connector file (' + err + '). Is Claude Desktop installed? The file is ' + file);
+            return json(res, 200, { ok: true, file });
+          }
+          if (action === 'claudeCodeStatus') return json(res, 200, { ok: true, ...(await claudecode.status()) });
           if (action === 'clearCache') {
             invalidate(''); mediaCache.clear(); mediaBytes = 0;
             directory(platformUp() ? session : {}).catch(() => {});

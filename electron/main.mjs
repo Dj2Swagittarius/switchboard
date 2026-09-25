@@ -521,6 +521,8 @@ globalThis.__triageHost = {
     return r.canceled ? null : r.filePaths[0];
   },
   openFolder: (dir) => { mkdirSync(dir, { recursive: true }); shell.openPath(dir); },
+  // Resolves to '' when opened, else the reason (e.g. no app for .mcpb files).
+  openFile: (file) => shell.openPath(file),
   createShortcut: () => createDesktopShortcut(),
   pickFile: async ({ title, filters }) => {
     const r = await dialog.showOpenDialog(win && !win.isDestroyed() ? win : undefined, {

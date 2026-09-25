@@ -41,7 +41,8 @@
     "npmRebuild": false,
     "asar": true,
     "asarUnpack": [
-      "transcribe.py"
+      "transcribe.py",
+      "mcp/switchboard-mcp.mjs"
     ],
     "files": [
       "package.json",
@@ -72,6 +73,7 @@
       "glass.css",
       "assets/bg-dark.webp",
       "assets/bg-light.webp",
+      "mcp/switchboard-mcp.mjs",
       "transcribe.py"
     ],
     "win": {

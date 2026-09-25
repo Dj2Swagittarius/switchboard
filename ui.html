@@ -210,7 +210,10 @@ function render() {
     top.appendChild(who);
     const nm = e.name || (known && known.name);
     if (nm) { const s = document.createElement('span'); s.className = 'meta'; s.textContent = nm; top.appendChild(s); }
-    for (const [txt, cls] of [[e.urgency, e.urgency], [e.category, ''], [e.from_role, '']]) {
+    // Connector mode: waiting for the Claude app to triage it.
+    const waiting = e.status === 'awaiting_triage';
+    const tags = waiting ? [['awaiting Claude', 'waiting']] : [[e.urgency, e.urgency], [e.category, ''], [e.from_role, '']];
+    for (const [txt, cls] of tags) {
       const t = document.createElement('span'); t.className = 'tag ' + cls; t.textContent = txt; top.appendChild(t);
     }
     if (e.needs_human) {
@@ -242,7 +245,8 @@ function render() {
 
     const sum = document.createElement('div');
     sum.className = 'sum';
-    sum.textContent = e.summary + (e.needs_human ? ' — ' + e.reason : '');
+    sum.textContent = waiting ? 'Waiting for triage from the Claude app. Ask Claude to "triage my Switchboard inbox", or reply now.'
+      : e.summary + (e.needs_human ? ' — ' + e.reason : '');
     body.appendChild(sum);
 
     const ta = document.createElement('textarea');
