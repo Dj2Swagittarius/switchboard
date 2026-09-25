@@ -152,10 +152,12 @@ tray's "Restart to update"). Copies from before 0.3.4 have no updater; install
 ### Releasing a new version
 
 1. Bump `version` in `package.json` and commit.
-2. Build and upload: `$env:GH_TOKEN = (gh auth token); npm run dist -- --publish always`.
-   This publishes a GitHub release `v<version>` with the installer,
-   its `.blockmap`, and `latest.yml` (what installed copies read).
-3. Push the commit and tag: `git tag v<version>; git push; git push --tags`.
+2. `npm run release`. It builds the installer, pushes, and creates GitHub
+   release `v<version>` with the installer, its `.blockmap`, and `latest.yml`
+   (what installed copies read). Needs `gh` signed in.
+
+Don't use `npm run dist -- --publish always`: electron-builder's two
+uploaders race and the release ends up without `latest.yml`.
 
 Running from a copied folder instead: copy the app folder, but leave out what is yours:
 
