@@ -212,10 +212,12 @@ button.bad{border-color:var(--urgent);color:var(--urgent)}
         <option value="ollama">Ollama — this PC</option>
         <option value="anthropic">Claude — Anthropic cloud</option>
         <option value="openai">OpenAI — cloud</option>
+        <option value="claudecode">Claude Code — this PC, your Claude plan</option>
+        <option value="connector">Claude app (connector) — your Claude plan</option>
       </select></div>
     <div class="cloudwarn" id="cloudWarn" hidden>
       <b>Messages leave this PC.</b> Every text, photo and thread you triage is sent to <span id="cloudWho"></span>
-      and billed to your API key. The local platforms keep everything on your machines.
+      <span id="cloudBill">and billed to your API key</span>. The local platforms keep everything on your machines.
     </div>
     <div class="row" data-ai="lmstudio"><div class="lbl"><b>LM Studio address</b><span id="lmState">Must be on this PC or your local network.</span></div>
       <input type="url" id="lmUrl" style="width:230px"><button id="lmTest">Test</button></div>
@@ -223,15 +225,30 @@ button.bad{border-color:var(--urgent);color:var(--urgent)}
       <input type="url" id="olUrl" style="width:230px"><button id="olTest">Test</button></div>
     <div class="row" data-ai="anthropic openai"><div class="lbl"><b>API key</b><span id="keyState"></span></div>
       <input type="password" id="aiKey" autocomplete="off" spellcheck="false" style="width:180px"><button id="keySave">Save</button><button id="keyTest">Test</button><button class="danger" id="keyDel">Remove</button></div>
-    <div class="row"><div class="lbl"><b>Text model</b><span>For triage, summaries and drafts.</span></div>
+    <div class="row" data-ai="claudecode"><div class="lbl"><b>Claude Code</b><span id="ccState">Uses the Claude Code app on this PC and your own Claude plan; no API key. Each message takes a few seconds.</span></div>
+      <button id="ccTest">Test</button></div>
+    <div class="row" data-ai="connector"><div class="lbl"><b>Claude app</b><span id="cnState">New texts wait in Triage until you ask Claude (Desktop, Cowork or Claude Code) to "triage my Switchboard inbox". Set it up under Connect to Claude below.</span></div></div>
+    <div class="row" data-ai="lmstudio ollama anthropic openai claudecode"><div class="lbl"><b>Text model</b><span>For triage, summaries and drafts.</span></div>
       <select id="model"></select></div>
-    <div class="row"><div class="lbl"><b>Photo model</b><span id="vNote">Must support images.</span></div>
+    <div class="row" data-ai="lmstudio ollama anthropic openai claudecode"><div class="lbl"><b>Photo model</b><span id="vNote">Must support images.</span></div>
       <select id="vmodel"></select></div>
     <div class="row"><div class="lbl"><b>Speech-to-text</b><span>For voicemail and call recordings. Larger is more accurate and slower.</span></div>
       <select data-k="triage.whisperModel">
         <option value="tiny.en">Tiny — fastest, rough</option><option value="base.en">Base — fast (default)</option>
         <option value="small.en">Small — better, ~2-3× slower</option><option value="medium.en">Medium — best, slow</option>
       </select></div>
+  </section>
+
+  <section data-platform>
+    <h2>Connect to Claude</h2>
+    <div class="row"><div class="lbl"><b>Use Claude without an API key</b><span>Lets Claude Desktop, Cowork or Claude Code read texts waiting in Triage, save triage and draft replies, and write the daily recap, on your own Claude plan. Claude can't send anything: you still press Send. Choose "Claude app" as the AI platform above so new texts wait for Claude.</span></div></div>
+    <div class="row"><div class="lbl"><b>Claude Desktop and Cowork</b><span id="cdState">Opens Claude Desktop's install screen for the Switchboard connector.</span></div>
+      <button id="cdInstall">Install in Claude Desktop</button></div>
+    <div class="row"><div class="lbl"><b>Claude Code</b><span>Run this once in a terminal to add the connector.</span></div>
+      <button id="cmdCopy">Copy command</button></div>
+    <div class="row"><div class="lbl"><b>Connector token</b><span id="tokState">Lets only your Claude apps reach Switchboard. A new token disconnects them until they are added again.</span></div>
+      <button class="danger" id="tokNew">New token</button></div>
+    <div class="row"><div class="lbl"><b>Keep it running</b><span>In Cowork or Claude Code you can schedule "triage my Switchboard inbox" every 15 minutes, and "write my Switchboard daily recap" each morning.</span></div></div>
   </section>
 
   <section data-platform>
@@ -371,8 +388,13 @@ const AI_KEYS = {
   ollama: ['ai.ollamaModel', 'ai.ollamaVisionModel'],
   anthropic: ['ai.anthropicModel', 'ai.anthropicVisionModel'],
   openai: ['ai.openaiModel', 'ai.openaiVisionModel'],
+  claudecode: ['ai.claudeCodeModel', 'ai.claudeCodeVisionModel'],
+  connector: ['ai.claudeCodeModel', 'ai.claudeCodeVisionModel'],   // unused: the Claude app picks
 };
-const AI_NAME = { lmstudio: 'LM Studio', ollama: 'Ollama', anthropic: 'Anthropic (Claude)', openai: 'OpenAI' };
+const AI_NAME = { lmstudio: 'LM Studio', ollama: 'Ollama', anthropic: 'Anthropic (Claude)', openai: 'OpenAI',
+                  claudecode: 'Claude (through Claude Code)', connector: 'Claude (through the Claude app)' };
+// Your own Claude plan instead of an API key; the messages still go to Claude.
+const plan = (p) => p === 'claudecode' || p === 'connector';
 const cloud = (p) => p === 'anthropic' || p === 'openai';
 const prov = () => S.ai.provider;
 
@@ -393,8 +415,9 @@ function renderAi() {
   $('#model').dataset.k = AI_KEYS[p][0];
   $('#vmodel').dataset.k = AI_KEYS[p][1];
   for (const row of document.querySelectorAll('[data-ai]')) row.hidden = !row.dataset.ai.split(' ').includes(p);
-  $('#cloudWarn').hidden = !cloud(p);
+  $('#cloudWarn').hidden = !cloud(p) && !plan(p);
   $('#cloudWho').textContent = AI_NAME[p];
+  $('#cloudBill').textContent = plan(p) ? 'and counts toward your Claude plan\'s usage' : 'and billed to your API key';
   $('#lmUrl').value = S.triage.lmStudioUrl;
   $('#olUrl').value = S.ai.ollamaUrl;
   $('#vNote').textContent = cloud(p) ? 'Must support images.'
@@ -411,7 +434,7 @@ function renderAi() {
 }
 
 // Where the current platform's connection status is written.
-const stateEl = () => $({ lmstudio: '#lmState', ollama: '#olState' }[prov()] || '#keyState');
+const stateEl = () => $({ lmstudio: '#lmState', ollama: '#olState', claudecode: '#ccState', connector: '#cnState' }[prov()] || '#keyState');
 function setState(text, cls = '') { const s = stateEl(); s.textContent = text; s.className = cls; }
 
 // Fetches the platform's model list into the pickers. Throws on failure.
@@ -425,6 +448,17 @@ async function fetchModels(url) {
 }
 // Background load on open / platform switch: status line only.
 async function loadModels() {
+  if (prov() === 'connector') return;
+  if (prov() === 'claudecode') {
+    setState('Looking for Claude Code…');
+    await fetchModels().catch(() => {});
+    try {
+      const j = await api('/api/settings/action', { action: 'claudeCodeStatus' });
+      if (j.version) setState('Found Claude Code ' + j.version + '. Press Test to check it is signed in.', 'ok');
+      else setState(j.error, 'bad');
+    } catch (e) { setState(e.message, 'bad'); }
+    return;
+  }
   setState('Checking…');
   try { const n = await fetchModels(); if (n) setState('Connected — ' + n + '.', 'ok'); }
   catch (e) { setState(e.message, 'bad'); }
@@ -449,8 +483,8 @@ async function testing(btn, run) {
 
 $('#aiProvider').onchange = async () => {
   const p = $('#aiProvider').value;
-  if (cloud(p) && !(await ask(`Send your messages to ${AI_NAME[p]}?`,
-      `Every text, photo and thread summary will be processed on ${AI_NAME[p]}'s servers and billed to your API key.\n\nYou can switch back to a local platform at any time.`,
+  if ((cloud(p) || plan(p)) && !(await ask(`Send your messages to ${AI_NAME[p]}?`,
+      `Every text, photo and thread summary will be processed on ${plan(p) ? 'Claude' : AI_NAME[p]}'s servers and ${plan(p) ? 'count toward your Claude plan\'s usage' : 'billed to your API key'}.\n\nYou can switch back to a local platform at any time.`,
       'Use ' + AI_NAME[p]))) {
     $('#aiProvider').value = prov();
     return;
@@ -484,6 +518,34 @@ $('#keyTest').onclick = () => testing($('#keyTest'), async () => {
   const j = await api('/api/settings/action', { action: 'aiTest' });
   return `Connected — ${j.model} answered in ${(j.ms / 1000).toFixed(1)}s.`;
 });
+$('#ccTest').onclick = () => testing($('#ccTest'), async () => {
+  const j = await api('/api/settings/action', { action: 'aiTest' });
+  return `Claude Code answered in ${(j.ms / 1000).toFixed(1)}s (${j.model}).`;
+});
+
+// ---- Connect to Claude ----------------------------------------------------------------
+$('#cdInstall').onclick = async () => {
+  try {
+    await api('/api/settings/action', { action: 'connectorDesktop' });
+    $('#cdState').textContent = 'Opened in Claude Desktop: press Install there. Cowork uses the same connector.';
+    $('#cdState').className = 'ok';
+  } catch (e) { $('#cdState').textContent = e.message; $('#cdState').className = 'bad'; }
+};
+$('#cmdCopy').onclick = async () => {
+  try {
+    const j = await api('/api/settings/action', { action: 'connectorInfo' });
+    await navigator.clipboard.writeText(j.command);
+    toast('Command copied. It includes your token: keep it private.');
+  } catch (e) { toast(e.message, true); }
+};
+$('#tokNew').onclick = async () => {
+  if (!(await ask('Make a new connector token?', 'Claude apps using the old one stop working until you add the connector again.', 'New token'))) return;
+  try {
+    await api('/api/settings/action', { action: 'connectorNewToken' });
+    $('#tokState').textContent = 'New token made. Add the connector to your Claude apps again.';
+    $('#tokState').className = 'ok';
+  } catch (e) { toast(e.message, true); }
+};
 $('#aiKey').onkeydown = (e) => { if (e.key === 'Enter') $('#keySave').click(); };
 for (const sel of [$('#model'), $('#vmodel')]) {
   sel.addEventListener('change', () => { if (sel.value) save({ [sel.dataset.k]: sel.value }); });
