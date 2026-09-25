@@ -31,3 +31,5 @@ dist/
 .claude/
 lines.json
 autoreply.json
+
+.env.*
