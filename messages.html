@@ -770,8 +770,11 @@ async function loadThread(scroll, { cachedFirst = false } = {}) {
       if (open === want && Array.isArray(c.messages)) renderThread(c.messages, want, scroll);
     } catch {}
   }
+  // read=1: it's on screen, so what comes back counts as read (a refresh while
+  // the window is hidden leaves new texts unread).
+  const seen = document.visibilityState === 'visible';
   let d;
-  try { d = await (await fetch(url)).json(); } catch { return; }
+  try { d = await (await fetch(url + (seen ? '&read=1' : ''))).json(); } catch { return; }
   if (open !== want) return;                    // switched conversations meanwhile
   const box = $('#msgs');
   if (!box) return;
@@ -782,6 +785,15 @@ async function loadThread(scroll, { cachedFirst = false } = {}) {
   }
   if ($('#stat').textContent.startsWith('could not refresh')) $('#stat').textContent = '';
   renderThread(d.messages || [], want, scroll);
+  if (seen && d.messages?.length) markShownRead(want, scroll);
+}
+
+// This thread's row and the sidebar count drop at once, not on the next poll.
+function markShownRead(want, opened) {
+  const c = convs.find(c => c.line === want.line && c.remote === want.remote);
+  const was = c?.unread;
+  if (was) { c.unread = 0; renderConvs(); }
+  if (was || opened) window.switchboardNav?.refresh();
 }
 
 function renderThread(list, want, scroll) {
@@ -1063,6 +1075,10 @@ try {
 // Backstop refresh in case a live event is missed; skip while hidden.
 setInterval(() => { if (document.visibilityState === 'visible') loadThread(false); }, 8000);
 setInterval(() => { if (document.visibilityState === 'visible') loadConvs(); }, 20000);
+// Back on screen with a thread open: what arrived meanwhile is now seen.
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') { loadThread(false); loadConvs(); }
+});
 
 (async () => {
   await loadLines();

@@ -25,7 +25,7 @@ import { insights } from './lib/insights.mjs';
 import { threadFor, summarizeThread } from './lib/thread.mjs';
 import { listVoicemails, transcribeVoicemail, fetchVoicemailAudio } from './lib/voicemail.mjs';
 import { listCalls, fetchRecordingAudio, transcribeRecording, safeId } from './lib/calls.mjs';
-import { conversations, thread as convThread, fetchMedia, sendText, safeMediaId, uploadAttachment, deleteMedia,
+import { conversations, markRead, thread as convThread, fetchMedia, sendText, safeMediaId, uploadAttachment, deleteMedia,
   deleteConversation, conversationCsv } from './lib/messaging.mjs';
 import { photoIndex, fileName } from './lib/photos.mjs';
 import { zip } from './lib/zip.mjs';
@@ -855,11 +855,14 @@ const server = createServer(async (req, res) => {
       catch (e) { return json(res, 400, { error: e.message }); }
     }
 
+    // read=1: the Messages page has the thread on screen, so it counts as read.
     if (p === '/api/conversation') {
       try {
-        return json(res, 200, { messages: await convThread(session, {
-          line: url.searchParams.get('line'), remote: url.searchParams.get('remote'),
-          cached: url.searchParams.get('cached') === '1' }) });
+        const line = url.searchParams.get('line'), remote = url.searchParams.get('remote');
+        const cached = url.searchParams.get('cached') === '1';
+        const messages = await convThread(session, { line, remote, cached });
+        if (!cached && url.searchParams.get('read') === '1' && messages?.length) { markRead(session, { line, remote, messages }); invalidate('badges:'); }
+        return json(res, 200, { messages });
       } catch (e) { return json(res, 400, { error: e.message }); }
     }
 
