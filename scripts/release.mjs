@@ -6,7 +6,7 @@
 // release; the loser fails with 422 "already_exists" before latest.yml is
 // written. So build with publishing off and upload everything in one go.
 import { execFileSync } from 'node:child_process';
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -35,5 +35,9 @@ if (!readFileSync(join(root, 'dist/latest.yml'), 'utf8').includes(`version: ${ve
   throw new Error('dist/latest.yml is not for ' + version);
 
 run('git', ['push']);
-run('gh', ['release', 'create', tag, ...files, '--title', version, '--target', out('git', ['rev-parse', 'HEAD']), '--notes', notes]);
+// Through a file: run() goes through the shell on Windows, which would split
+// the notes apart at spaces and quotes.
+const notesFile = 'dist/release-notes.md';   // relative: the full path has a space
+writeFileSync(join(root, notesFile), notes + '\n');
+run('gh', ['release', 'create', tag, ...files, '--title', version, '--target', out('git', ['rev-parse', 'HEAD']), '--notes-file', notesFile]);
 console.log(`\nReleased ${tag}. Installed copies pick it up within 4 hours (or at their next start).`);
