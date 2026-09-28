@@ -16,10 +16,9 @@ import { runOnce } from './lib/pipeline.mjs';
 import { sendMessage } from './lib/send.mjs';
 import { lines, primary, setActive, addLine, setPrimary, setLabel, removeLine } from './lib/lines.mjs';
 import { load as loadContacts, save as saveContacts, ROLES } from './lib/contacts.mjs';
-import { MODELS, DEFAULT_INSTRUCTIONS as TRIAGE_DEFAULT, TRIAGE_SCHEMA, instructions as triageInstructions } from './lib/llm.mjs';
+import { MODELS, DEFAULT_INSTRUCTIONS as TRIAGE_DEFAULT, CONVERSATION_SCHEMA, conversationInstructions } from './lib/llm.mjs';
 import * as connector from './lib/connector.mjs';
 import * as claudecode from './lib/claudecode.mjs';
-import { fetchMedia as fetchMmsItem } from './lib/media.mjs';
 import * as ai from './lib/ai.mjs';
 import * as review from './lib/review.mjs';
 import { visionModel } from './lib/media.mjs';
@@ -27,7 +26,8 @@ import * as settings from './lib/settings.mjs';
 import { invalidate, swr } from './lib/cache.mjs';
 import * as store from './lib/store.mjs';
 import { insights } from './lib/insights.mjs';
-import { threadFor, summarizeThread } from './lib/thread.mjs';
+import { threadFor } from './lib/thread.mjs';
+import * as convtriage from './lib/convtriage.mjs';
 import { listVoicemails, transcribeVoicemail, fetchVoicemailAudio } from './lib/voicemail.mjs';
 import { listCalls, fetchRecordingAudio, transcribeRecording, safeId } from './lib/calls.mjs';
 import { conversations, markRead, thread as convThread, fetchMedia, sendText, safeMediaId, uploadAttachment, deleteMedia,
@@ -59,6 +59,7 @@ const NL = String.fromCharCode(10);
 const session = tryLoadSession() ?? {};
 // Before anything reads the profile: carry an older install's servers over.
 const migrated = profile.migrate(session);
+convtriage.migrate();   // per-text queue entries from before conversation triage
 // A token saved for another API server than the profile's (changed mid
 // sign-in, or by hand), or with no API server at all (phone only), is not
 // this account's; start signed out instead. .token.json stays for the CLI.
@@ -129,7 +130,7 @@ async function sync(reason, backlog = null) {
     }
     status.processed += r.processed.length;
     status.lastSync = new Date().toISOString();
-    if (r.processed.length && withAi) push('queue', store.pending());
+    if ((r.processed.length || r.closed) && withAi) push('queue', store.pending());
   } catch (e) {
     if (restore) for (const id of restore) skip.add(id);
     status.lastError = e.message;
@@ -341,7 +342,7 @@ const GATED_PAGES = new Set([...PLATFORM_PAGES, '/contacts', '/contacts.html', '
 const PLATFORM_API = new Set(['/api/review/run', '/api/insights', '/api/conversations', '/api/conversation',
   '/api/media', '/api/photos', '/api/photos/zip', '/api/messages/send', '/api/messages/upload', '/api/messages/delete', '/api/conversation/delete', '/api/conversation/export', '/api/account/devices', '/api/calls', '/api/recording/audio',
   '/api/recording/transcribe', '/api/voicemail/audio', '/api/voicemails', '/api/voicemail/transcribe',
-  '/api/thread', '/api/sync', '/api/send', '/api/company', '/api/parked', '/api/fax', '/api/fax/pdf', '/api/fax/send']);
+  '/api/thread', '/api/triage', '/api/sync', '/api/send', '/api/company', '/api/parked', '/api/fax', '/api/fax/pdf', '/api/fax/send']);
 // Device and authorization usernames go into SIP headers as-is.
 const SIP_USER = /^[^\s@:;<>"]{1,64}$/;
 
@@ -545,15 +546,15 @@ const server = createServer(async (req, res) => {
       if (route === 'hello' && post) return json(res, 200, { ok: true });
       if (route === 'instructions' && get) {
         return json(res, 200, { provider: ai.provider(),
-          triage: { instructions: triageInstructions(), schema: TRIAGE_SCHEMA },
+          triage: { instructions: conversationInstructions(), schema: CONVERSATION_SCHEMA },
           recap: { instructions: review.RECAP_INSTRUCTIONS, schema: review.RECAP_SCHEMA } });
       }
       if (route === 'pending' && get) {
         const items = connector.pending(url.searchParams.get('limit')).map(e => ({
           id: e.id, from: e.remote, name: e.name, known_role: e.known_role, line: e.local,
-          at: new Date(e.at).toISOString(), text: e.text,
-          history: (e.history ?? []).map(h => ({ at: new Date(h.at).toISOString(), from: h.inbound ? 'THEM' : 'US', text: h.text })),
-          media: (e.media ?? []).map((m, n) => ({ n, mime: m.mime, image: /^image\//.test(m.mime) && !!m.url })),
+          at: new Date(e.at).toISOString(),
+          transcript: (e.transcript ?? []).map(t => ({ at: new Date(t.at).toISOString(), from: t.inbound ? 'THEM' : 'US', text: t.text })),
+          photos: (e.photos ?? []).map(ph => ({ id: ph.msg, n: ph.n, mime: ph.mime })),
         }));
         let note = null;
         if (ai.provider() !== 'connector') note = 'Switchboard is not in connector mode, so new texts are triaged in the app, not here. To use Claude: Switchboard → Settings → AI platform → the Claude app.';
@@ -568,12 +569,14 @@ const server = createServer(async (req, res) => {
       }
       if (!platformUp()) return json(res, 409, { error: 'Switchboard is not signed in to an account.' });
       if (route === 'media' && get) {
-        const e = store.all().find(x => x.id === url.searchParams.get('id'));
-        const m = e?.media?.[Number(url.searchParams.get('n'))];
-        if (!m?.url || !/^image\//.test(m.mime)) return json(res, 404, { error: 'No such photo.' });
-        const got = await fetchMmsItem(session, { ooma_media_url: m.url, media: { mime_type: m.mime } }, e.local);
-        if (!got) return json(res, 502, { error: 'The photo could not be fetched.' });
-        let { buf, mime } = got;
+        // A photo in a waiting conversation, by message id and position.
+        const want = url.searchParams.get('id'), n = Number(url.searchParams.get('n'));
+        const ph = connector.pending(50).flatMap(x => (x.photos ?? []).map(p => ({ ...p, line: x.local })))
+          .find(p => p.msg === want && p.n === n);
+        if (!ph) return json(res, 404, { error: 'No such photo.' });
+        let buf, mime;
+        try { ({ buf, type: mime } = await fetchMedia(session, ph.media_id, ph.line)); }
+        catch { return json(res, 502, { error: 'The photo could not be fetched.' }); }
         // Claude reads images up to ~1568px on the long edge; send no more.
         if (nativeImage) {
           const img = nativeImage.createFromBuffer(buf), { width, height } = img.getSize();
@@ -1194,10 +1197,39 @@ const server = createServer(async (req, res) => {
       const remote = url.searchParams.get('remote');
       if (!remote) return json(res, 400, { error: 'remote required' });
       const msgs = await threadFor(session, remote);
-      const flat = msgs.map(m => ({ at: m.at, inbound: m.inbound, text: m.forModel(), state: m.state }));
-      if (url.searchParams.get('summary') !== '1') return json(res, 200, { messages: flat });
-      try { return json(res, 200, { messages: flat, summary: await summarizeThread(msgs) }); }
-      catch (e) { return json(res, 200, { messages: flat, error: e.message }); }
+      return json(res, 200, { messages: msgs.map(m => ({ at: m.at, inbound: m.inbound, text: m.forModel(), state: m.state })) });
+    }
+
+    // Conversation triage for the Messages panel (lib/convtriage.mjs). GET: the
+    // saved one and whether newer texts have come in since. POST: run it now
+    // (connector mode: ask the Claude app). A request doesn't change whether
+    // the conversation is in the queue, except that one waiting on us joins it
+    // while background triage is on.
+    if (p === '/api/triage') {
+      if (!fromApp(req)) return json(res, 403, { error: 'Open this from the Switchboard app.' });
+      const remote = String(url.searchParams.get('remote') ?? '');
+      const line = String(url.searchParams.get('line') ?? '') || primary();
+      if (!/\d{7}/.test(remote.replace(/\D/g, ''))) return json(res, 400, { error: 'bad number' });
+      const viaClaude = ai.provider() === 'connector';
+      if (req.method === 'GET') {
+        const entry = convtriage.get(remote);
+        let stale = true;
+        try { stale = convtriage.stale(entry, (await convThread(session, { line, remote, cached: true })) ?? []); } catch {}
+        return json(res, 200, { entry, stale, connector: viaClaude });
+      }
+      if (req.method === 'POST') {
+        const before = convtriage.get(remote);
+        const open = !!before && !before.resolution;
+        try {
+          const msgs = await convThread(session, { line, remote });
+          const wantsUs = settings.get('triage.enabled') === true && !!msgs.length && msgs[msgs.length - 1].inbound;
+          let entry = await convtriage.analyze(session, { remote, line,
+            reopen: viaClaude || (!before && wantsUs), keepClosed: viaClaude && !open && !wantsUs });
+          if (!before && !wantsUs && !viaClaude) { store.resolve(entry.id, 'viewed'); entry = convtriage.get(remote); }
+          push('queue', store.pending());
+          return json(res, 200, { entry, stale: false, connector: viaClaude });
+        } catch (e) { return json(res, 502, { error: e.message }); }
+      }
     }
 
     if (p === '/api/state') {
@@ -1250,7 +1282,7 @@ const server = createServer(async (req, res) => {
 
     if (p === '/api/reject' && req.method === 'POST') {
       const { id } = await readBody(req);
-      store.resolve(id, 'rejected');
+      store.resolve(id, 'done');
       push('queue', store.pending());
       return json(res, 200, { ok: true });
     }
