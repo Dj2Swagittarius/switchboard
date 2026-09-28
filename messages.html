@@ -134,6 +134,21 @@ textarea.locked{opacity:.55;cursor:progress}
 .mact{flex:none;width:28px;height:28px;padding:0;border-radius:50%;font-size:16px;line-height:1;color:var(--muted);
   opacity:0;transition:opacity .15s}
 .mline:hover .mact,.mact:focus-visible,.mact[aria-expanded=true]{opacity:1}
+/* Quick reactions on their messages: sent as the emoji on its own. */
+.m.them .mline{position:relative}
+.reacts{position:absolute;left:0;bottom:calc(100% - 6px);z-index:5;display:none;gap:2px;padding:3px 5px;
+  background:var(--menu, var(--panel));border:1px solid var(--line);border-radius:999px;box-shadow:0 6px 18px rgba(0,0,0,.3)}
+.mline:hover .reacts,.reacts:focus-within{display:flex}
+.reacts button{border:0;background:transparent;padding:2px 3px;font-size:16px;line-height:1;cursor:pointer;border-radius:8px}
+.reacts button:hover{background:var(--them);transform:scale(1.15)}
+.bub.emo{background:none !important;font-size:34px;line-height:1.15;padding:0 4px}
+/* Suggested replies above the message box. */
+.sugg{display:flex;gap:8px;flex-wrap:wrap;padding:0 0 8px}
+.sugg[hidden]{display:none}
+.sugg button{border:1px solid var(--accent);color:var(--accent);background:transparent;border-radius:999px;
+  padding:5px 12px;font-size:13px;cursor:pointer;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sugg button:hover{background:var(--sel,rgba(91,141,255,.16))}
+.sugg .meta{align-self:center}
 .more{font-size:18px;line-height:1;padding:4px 11px}
 .menu{position:fixed;z-index:1100;min-width:200px;padding:6px;background:var(--menu, var(--panel));color:var(--ink);
   border:1px solid var(--line);border-radius:12px;box-shadow:0 14px 40px rgba(0,0,0,.4)}
@@ -249,6 +264,10 @@ const unsent = new Set();  // composer keys whose last send failed
 const outbox = new Map();  // key -> [{ cid, text, atts, line, target, state: 'sending'|'failed'|'sent', error, at }]
 const chains = new Map();  // key -> promise of the send in progress
 let lastThread = null;     // { list, want } last drawn, to redraw when the outbox changes
+const REACTIONS = ['👍', '❤️', '😂', '🙏', '✅', '👀'];
+// A message that's only a few emoji shows large, without a bubble, as phones do.
+const EMOJI_ONLY = /^(?:\p{Extended_Pictographic}(?:\uFE0F|\u200D\p{Extended_Pictographic}|\p{Emoji_Modifier})*\s*){1,3}$/u;
+const textBub = (t) => el('div', 'bub' + (EMOJI_ONLY.test(t.trim()) ? ' emo' : ''), t);
 
 // ---- lines ------------------------------------------------------------------
 async function loadLines() {
@@ -537,7 +556,20 @@ function composer({ to = null, conv = null } = {}) {
   const live = el('span', 'sr'); live.setAttribute('aria-live', 'polite');
   const count = el('span', 'count', '0/' + MAX);
   foot.append(el('span', 'meta', 'Enter to send · Shift+Enter for a new line'), el('span', 'grow'), err, count, live);
-  wrap.append(tray, r, foot, pick);
+  const sugg = el('div', 'sugg'); sugg.hidden = true;
+  wrap.append(sugg, tray, r, foot, pick);
+  // null: still thinking; [] : none.
+  wrap.setSuggestions = (list) => {
+    sugg.textContent = '';
+    if (list === null) { sugg.hidden = false; sugg.appendChild(el('span', 'meta', 'Thinking of replies…')); return; }
+    sugg.hidden = !list.length;
+    for (const t of list) {
+      const b = el('button', '', t);
+      b.type = 'button'; b.title = 'Put this in the message box';
+      b.onclick = () => { if (ta.readOnly) return; ta.value = t; ta.oninput(); ta.focus(); };
+      sugg.appendChild(b);
+    }
+  };
 
   // Attachments: prepared (checked, converted, previewed) as they're added,
   // uploaded when the message is sent. An upload that succeeded is kept for a
@@ -950,13 +982,15 @@ function renderThread(list, want, scroll) {
       };
       row.appendChild(actionLine(img, m, md, want));
     }
-    if (m.text) row.appendChild(actionLine(el('div', 'bub', m.text), m, null, want));
+    if (m.text) row.appendChild(actionLine(textBub(m.text), m, null, want));
     const t = new Date(m.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
     row.appendChild(el('div', 'mt', m.failed ? 'Failed · ' + (m.reason || 'not delivered')
       : t + (m.inbound ? '' : m.state ? ' · ' + m.state : '')));
     box.appendChild(row);
   }
   for (const j of mine) box.appendChild(pendingRow(j, key));
+  const newest = list[list.length - 1];
+  loadSuggestions(want, newest && newest.inbound && !mine.some(j => j.state !== 'failed') ? newest.id : null);
   const nPhotos = list.reduce((n, m) => n + m.media.filter(x => x.mime.startsWith('image/')).length, 0);
   for (const id of ['#thphotos', '#thzip']) { const b = $(id); if (b) b.style.display = nPhotos ? '' : 'none'; }
   if ($('#thzip')) { $('#thzip').dataset.label = 'Save all ' + nPhotos + ' photo' + (nPhotos === 1 ? '' : 's');
@@ -972,7 +1006,7 @@ function pendingRow(j, key) {
     if (a.thumb) { const img = el('img'); img.src = a.thumb; img.alt = a.name; row.appendChild(img); }
     else row.appendChild(el('div', 'bub file', '📎 ' + a.name));
   }
-  if (j.text) row.appendChild(el('div', 'bub', j.text));
+  if (j.text) row.appendChild(textBub(j.text));
   const mt = el('div', 'mt', j.state === 'failed' ? 'Not sent · ' + j.error : j.state === 'sent' ? 'Sent' : j.step || 'Sending…');
   if (j.state === 'failed') {
     const retry = el('button', 'link', 'Retry');
@@ -1041,6 +1075,39 @@ function queueSend(key, j) {
   return next;
 }
 
+// A reaction is the emoji sent on its own, through the same queue as a typed
+// message.
+function react(conv, emoji) {
+  const key = conv.line + '|' + conv.remote;
+  const j = { cid: crypto.randomUUID(), text: emoji, atts: [], line: conv.line, target: conv.remote,
+              state: 'sending', error: '', at: Date.now() };
+  outbox.set(key, [...(outbox.get(key) || []), j]);
+  redrawThread();
+  queueSend(key, j);
+}
+
+// Suggested replies for their newest message (null: nothing to answer, e.g. we
+// spoke last). Fetched once per message; shown in that conversation's composer.
+const suggested = new Map();   // key -> { for: message id, replies }
+async function loadSuggestions(conv, forId) {
+  const key = conv.line + '|' + conv.remote;
+  const comp = composers.get(key);
+  if (!forId) { suggested.delete(key); comp?.setSuggestions([]); return; }
+  const have = suggested.get(key);
+  if (have && have.for === forId) { comp?.setSuggestions(have.replies); return; }
+  suggested.set(key, { for: forId, replies: [] });
+  comp?.setSuggestions(null);          // "Thinking…"
+  let replies = [];
+  try {
+    const q = '/api/suggest?remote=' + encodeURIComponent(conv.remote) + '&line=' + encodeURIComponent(conv.line);
+    const d = await (await fetch(q)).json();
+    if (d.for === forId) replies = d.replies || [];
+  } catch {}
+  if (suggested.get(key)?.for !== forId) return;   // a newer message came in meanwhile
+  suggested.set(key, { for: forId, replies });
+  composers.get(key)?.setSuggestions(replies);
+}
+
 // Video or voice memo. preload="none": nothing is downloaded (or converted)
 // until play is pressed. The server converts phone audio (AMR) so it has sound;
 // if it can't on this PC (no ffmpeg), say so rather than play silently.
@@ -1075,6 +1142,16 @@ function actionLine(node, m, md, conv) {
   b.setAttribute('aria-label', 'Message actions'); b.setAttribute('aria-haspopup', 'menu');
   b.onclick = (e) => { e.stopPropagation(); menu(b, msgItems(m, md, conv)); };
   line.append(node, b);
+  if (m.inbound && !md && conv && !conv.compose) {
+    const bar = el('div', 'reacts');
+    for (const e of REACTIONS) {
+      const r = el('button', '', e);
+      r.type = 'button'; r.title = 'React ' + e; r.setAttribute('aria-label', 'React ' + e);
+      r.onclick = (ev) => { ev.stopPropagation(); react(conv, e); };
+      bar.appendChild(r);
+    }
+    line.appendChild(bar);
+  }
   return line;
 }
 

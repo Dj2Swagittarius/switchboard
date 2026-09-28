@@ -1,5 +1,13 @@
 [
   {
+    "version": "0.4.3",
+    "date": "2026-09-28",
+    "changes": [
+      "Reactions: hover over someone's text and pick 👍 ❤️ 😂 🙏 ✅ or 👀. The emoji is sent on its own, and emoji-only texts show large.",
+      "Suggested replies: when someone has texted you, three short replies appear above the message box. Click one to put it in the box, then press Enter to send."
+    ]
+  },
+  {
     "version": "0.4.2",
     "date": "2026-09-28",
     "changes": [

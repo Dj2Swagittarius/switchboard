@@ -28,6 +28,7 @@ import * as store from './lib/store.mjs';
 import { insights } from './lib/insights.mjs';
 import { threadFor } from './lib/thread.mjs';
 import * as convtriage from './lib/convtriage.mjs';
+import { suggest } from './lib/suggest.mjs';
 import { listVoicemails, transcribeVoicemail, fetchVoicemailAudio } from './lib/voicemail.mjs';
 import { listCalls, fetchRecordingAudio, transcribeRecording, safeId } from './lib/calls.mjs';
 import { conversations, markRead, thread as convThread, fetchMedia, sendText, safeMediaId, uploadAttachment, deleteMedia,
@@ -342,7 +343,7 @@ const GATED_PAGES = new Set([...PLATFORM_PAGES, '/contacts', '/contacts.html', '
 const PLATFORM_API = new Set(['/api/review/run', '/api/insights', '/api/conversations', '/api/conversation',
   '/api/media', '/api/photos', '/api/photos/zip', '/api/messages/send', '/api/messages/upload', '/api/messages/delete', '/api/conversation/delete', '/api/conversation/export', '/api/account/devices', '/api/calls', '/api/recording/audio',
   '/api/recording/transcribe', '/api/voicemail/audio', '/api/voicemails', '/api/voicemail/transcribe',
-  '/api/thread', '/api/triage', '/api/sync', '/api/send', '/api/company', '/api/parked', '/api/fax', '/api/fax/pdf', '/api/fax/send']);
+  '/api/thread', '/api/triage', '/api/suggest', '/api/sync', '/api/send', '/api/company', '/api/parked', '/api/fax', '/api/fax/pdf', '/api/fax/send']);
 // Device and authorization usernames go into SIP headers as-is.
 const SIP_USER = /^[^\s@:;<>"]{1,64}$/;
 
@@ -1198,6 +1199,19 @@ const server = createServer(async (req, res) => {
       if (!remote) return json(res, 400, { error: 'remote required' });
       const msgs = await threadFor(session, remote);
       return json(res, 200, { messages: msgs.map(m => ({ at: m.at, inbound: m.inbound, text: m.forModel(), state: m.state })) });
+    }
+
+    // Suggested replies above the Messages box (lib/suggest.mjs). Off with the
+    // Claude app as the AI platform: it can't answer while you wait.
+    if (p === '/api/suggest') {
+      if (!fromApp(req)) return json(res, 403, { error: 'Open this from the Switchboard app.' });
+      if (ai.provider() === 'connector') return json(res, 200, { replies: [], off: 'connector' });
+      const remote = String(url.searchParams.get('remote') ?? '');
+      const line = String(url.searchParams.get('line') ?? '') || primary();
+      try {
+        const msgs = await convThread(session, { line, remote });
+        return json(res, 200, { replies: await suggest(remote, msgs), for: msgs[msgs.length - 1]?.id ?? null });
+      } catch (e) { return json(res, 502, { error: e.message }); }
     }
 
     // Conversation triage for the Messages panel (lib/convtriage.mjs). GET: the
