@@ -1,5 +1,12 @@
 [
   {
+    "version": "0.4.1",
+    "date": "2026-09-28",
+    "changes": [
+      "Fax: a failed fax now says why in plain words (for example, the number isn't a fax machine), and the list no longer squashes the name and date."
+    ]
+  },
+  {
     "version": "0.4.0",
     "date": "2026-09-28",
     "changes": [
