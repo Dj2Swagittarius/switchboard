@@ -99,6 +99,9 @@ select,input{border:1px solid var(--line);background:var(--bg);padding:6px 9px;b
 .mt{font-size:11px;color:var(--muted);padding:0 4px}
 .m.failed .bub{outline:1px solid var(--urgent)}
 .m.failed .mt{color:var(--urgent)}
+.m.pending .bub,.m.pending img{opacity:.6}
+.m.pending img,.m.failed img{max-width:160px;max-height:160px;border-radius:12px}
+.mt button.link{border:0;background:none;padding:0 0 0 8px;color:var(--accent);cursor:pointer;font:inherit;font-weight:600}
 .empty{margin:auto;text-align:center;color:var(--muted);padding:40px}
 
 .compose{border-top:1px solid var(--line);background:var(--panel);padding:10px 14px;flex:none}
@@ -240,6 +243,12 @@ let openSig = '';
 // switching to another conversation and back.
 const composers = new Map();
 const unsent = new Set();  // composer keys whose last send failed
+// Messages on their way out, per conversation ('line|remote'), shown at the end
+// of the thread until the platform's copy arrives. They go out one at a time,
+// in order, so the box is free to type the next one straight away.
+const outbox = new Map();  // key -> [{ cid, text, atts, line, target, state: 'sending'|'failed'|'sent', error, at }]
+const chains = new Map();  // key -> promise of the send in progress
+let lastThread = null;     // { list, want } last drawn, to redraw when the outbox changes
 
 // ---- lines ------------------------------------------------------------------
 async function loadLines() {
@@ -551,7 +560,8 @@ function composer({ to = null, conv = null } = {}) {
     }
   }
   // A failed draft that's been emptied is no longer waiting to be sent.
-  const forgetIfEmpty = () => { if (!sending && !ta.value.trim() && !atts.length && unsent.delete(key)) renderConvs(); };
+  const forgetIfEmpty = () => { if (!sending && !ta.value.trim() && !atts.length &&
+    !(outbox.get(key) || []).some(j => j.state === 'failed') && unsent.delete(key)) renderConvs(); };
   function drawAtts() {
     forgetIfEmpty();
     tray.textContent = '';
@@ -608,6 +618,20 @@ function composer({ to = null, conv = null } = {}) {
     if (text.length > MAX) { err.textContent = 'Too long.'; return; }
     if (toInput && digits(target).length < 10) { err.textContent = 'Enter a full phone number.'; return; }
     if (atts.some(a => a.busy)) { err.textContent = 'Still preparing an attachment…'; return; }
+    // In a conversation: the message moves into the thread as "Sending…" and
+    // the box clears at once, ready for the next one.
+    if (!toInput) {
+      const j = { cid, text, atts: [...atts], line, target, state: 'sending', error: '', at: Date.now() };
+      cid = crypto.randomUUID();
+      ta.value = ''; ta.oninput();
+      atts.length = 0; drawAtts();
+      err.textContent = '';
+      outbox.set(key, [...(outbox.get(key) || []), j]);
+      redrawThread();
+      ta.focus();
+      queueSend(key, j);
+      return;
+    }
     const status = (t) => { send.textContent = t; live.textContent = t === 'Send' ? '' : t; };
     sending = true; send.disabled = true; status('Sending…'); err.textContent = '';
     // Lock the composer until the send is confirmed and the box has cleared,
@@ -885,14 +909,21 @@ function markShownRead(want, opened) {
 function renderThread(list, want, scroll) {
   const box = $('#msgs');
   if (!box || open !== want) return;
-  const sig = list.length + ':' + (list.length ? list[list.length - 1].id + list[list.length - 1].state : '');
+  const key = want.line + '|' + want.remote;
+  // Ours, sent, and now in the platform's copy: the stand-in goes.
+  const mine = (outbox.get(key) || []).filter(j => !(j.state === 'sent' && (Date.now() - j.at > 120e3 ||
+    list.some(m => !m.inbound && m.at >= j.at - 60e3 && (m.text || '').trim() === j.text))));
+  if (mine.length) outbox.set(key, mine); else outbox.delete(key);
+  lastThread = { list, want };
+  const sig = list.length + ':' + (list.length ? list[list.length - 1].id + list[list.length - 1].state : '') +
+    '|' + mine.map(j => j.cid + j.state + (j.step || '')).join(',');
   if (sig === openSig) return;                  // nothing new; don't disturb scroll
   openSig = sig;
   closeMenu();
   const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
 
   box.textContent = '';
-  if (!list.length) box.appendChild(el('div', 'empty', 'No messages yet.'));
+  if (!list.length && !mine.length) box.appendChild(el('div', 'empty', 'No messages yet.'));
   let lastDay = '';
   for (const m of list) {
     const dl = dayLabel(m.at);
@@ -925,11 +956,89 @@ function renderThread(list, want, scroll) {
       : t + (m.inbound ? '' : m.state ? ' · ' + m.state : '')));
     box.appendChild(row);
   }
+  for (const j of mine) box.appendChild(pendingRow(j, key));
   const nPhotos = list.reduce((n, m) => n + m.media.filter(x => x.mime.startsWith('image/')).length, 0);
   for (const id of ['#thphotos', '#thzip']) { const b = $(id); if (b) b.style.display = nPhotos ? '' : 'none'; }
   if ($('#thzip')) { $('#thzip').dataset.label = 'Save all ' + nPhotos + ' photo' + (nPhotos === 1 ? '' : 's');
     if (!$('#thzip').dataset.busy) $('#thzip').textContent = $('#thzip').dataset.label; }
   if (scroll || atBottom) box.scrollTop = box.scrollHeight;
+}
+
+// A message on its way out (or one that didn't go): what was sent and, for a
+// failed one, Retry and Delete.
+function pendingRow(j, key) {
+  const row = el('div', 'm me ' + (j.state === 'failed' ? 'failed' : j.state === 'sending' ? 'pending' : ''));
+  for (const a of j.atts) {
+    if (a.thumb) { const img = el('img'); img.src = a.thumb; img.alt = a.name; row.appendChild(img); }
+    else row.appendChild(el('div', 'bub file', '📎 ' + a.name));
+  }
+  if (j.text) row.appendChild(el('div', 'bub', j.text));
+  const mt = el('div', 'mt', j.state === 'failed' ? 'Not sent · ' + j.error : j.state === 'sent' ? 'Sent' : j.step || 'Sending…');
+  if (j.state === 'failed') {
+    const retry = el('button', 'link', 'Retry');
+    retry.onclick = () => { j.state = 'sending'; j.error = ''; markUnsent(key); redrawThread(); queueSend(key, j); };
+    const del = el('button', 'link', 'Delete');
+    del.onclick = () => { outbox.set(key, (outbox.get(key) || []).filter(x => x !== j)); markUnsent(key); redrawThread(); };
+    mt.append(retry, del);
+  }
+  row.appendChild(mt);
+  return row;
+}
+function redrawThread() {
+  if (!lastThread || open !== lastThread.want) return;
+  openSig = '';
+  renderThread(lastThread.list, lastThread.want, true);
+}
+// The conversation list's "Not sent" tag follows the failed messages.
+function markUnsent(key) {
+  const bad = (outbox.get(key) || []).some(j => j.state === 'failed');
+  if (bad === unsent.has(key)) return;
+  if (bad) unsent.add(key); else unsent.delete(key);
+  renderConvs();
+}
+async function uploadFile(a, line) {
+  const r = await (await fetch('/api/messages/upload', { method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ line, name: a.name, type: a.type, data: await base64(a.blob), thumb: a.thumb || null }) })).json();
+  if (r.error) throw new Error(r.error);
+  return r.id;
+}
+// One conversation's messages go out one after another, in the order written.
+// The message id (cid) stays the same on a retry, so a send that did go
+// through isn't sent twice.
+function queueSend(key, j) {
+  const run = async () => {
+    const step = (t) => { j.step = t; redrawThread(); };
+    try {
+      const media = [];
+      for (const [i, a] of j.atts.entries()) {
+        if (!(a.id && a.idLine === j.line)) {
+          step(j.atts.length > 1 ? `Uploading ${i + 1}/${j.atts.length}…` : 'Uploading…');
+          try { a.id = await uploadFile(a, j.line); } catch (e) { throw new Error(`“${a.name}”: ${e.message}`); }
+          a.idLine = j.line;
+        }
+        media.push(a.id);
+      }
+      step('Sending…');
+      const r = await (await fetch('/api/messages/send', { method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ line: j.line, to: j.target, text: j.text, media, clientMsgId: j.cid }) })).json();
+      if (r.error) throw new Error(r.error);
+      j.state = 'sent'; j.at = Date.now();
+    } catch (e) {
+      j.state = 'failed'; j.error = e.message;
+    }
+    j.step = '';
+    markUnsent(key);
+    redrawThread();
+    if (j.state === 'sent') {
+      if (open && open.line + '|' + open.remote === key) await loadThread(false);
+      loadConvs();
+    }
+  };
+  const next = (chains.get(key) || Promise.resolve()).then(run);
+  chains.set(key, next);
+  return next;
 }
 
 // Video or voice memo. preload="none": nothing is downloaded (or converted)
@@ -1111,7 +1220,7 @@ async function deleteConversationAsk(c) {
       body: JSON.stringify({ line: c.line, remote: c.remote }) })).json();
     if (r.error) throw new Error(r.error);
     const key = c.line + '|' + c.remote;
-    composers.delete(key); unsent.delete(key);
+    composers.delete(key); unsent.delete(key); outbox.delete(key);
     if (open && open.line === c.line && open.remote === c.remote) {
       open = null;
       const pane = $('#pane'); pane.textContent = '';
