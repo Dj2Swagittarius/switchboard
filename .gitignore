@@ -31,5 +31,7 @@ dist/
 .claude/
 lines.json
 autoreply.json
+connector-seen.json
+seen-version.json
 
 .env.*

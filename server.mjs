@@ -1,5 +1,7 @@
 // Local dashboard for the triage queue.
 // Binds to 127.0.0.1 only — it can send SMS as you, so it must not be exposed.
+// First: it notes a fresh install before anything else writes to the data folder.
+import * as whatsnew from './lib/whatsnew.mjs';
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { tryLoadSession, clearSession, saveSession, connected, authenticate, credentials } from './lib/kazoo.mjs';
@@ -601,6 +603,13 @@ const server = createServer(async (req, res) => {
       return json(res, 404, { error: 'not found' });
     }
 
+    // Release notes after an update (lib/whatsnew.mjs); nav.js shows them.
+    if (p === '/api/whats-new') {
+      if (!fromApp(req)) return json(res, 403, { error: 'Open this from the Switchboard app.' });
+      if (req.method === 'POST') { whatsnew.markSeen(); return json(res, 200, { ok: true }); }
+      return json(res, 200, { notes: whatsnew.pending() });
+    }
+
     if (p.startsWith('/api/settings')) {
       if (!fromApp(req)) return json(res, 403, { error: 'Open this from the Switchboard app.' });
       const host = globalThis.__triageHost ?? null;
@@ -1145,7 +1154,8 @@ const server = createServer(async (req, res) => {
 
     if (p === '/api/calls') {
       const days = Math.min(365, Math.max(1, Number(url.searchParams.get('days') ?? 30)));
-      return json(res, 200, { calls: await listCalls(session, { days }) });
+      const fresh = url.searchParams.get('fresh') === '1';
+      return json(res, 200, { calls: await listCalls(session, { days, fresh }) });
     }
 
     if (p === '/api/recording/audio') {

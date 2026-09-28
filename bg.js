@@ -17,6 +17,9 @@
 // moment it was switched off; that moment is kept in localStorage so every
 // page shows the same still frame, and the storage event carries a change to
 // pages that are already open. The chosen theme travels the same way.
+//
+// Plain themes have no shader: a flat colour per mode, set as the page's
+// wallpaper in place of glass.css's image.
 (() => {
   const HEAD = `
 #ifdef GL_FRAGMENT_PRECISION_HIGH
@@ -243,6 +246,13 @@ void main(){
     vapor:   both(VAPOR,   { uC0: '#2fb5c9', uC1: '#3b6cf6', uC2: '#5fd6a0', uSpeed: 0.8 }),
     velvet:  both(VELVET,  { uC0: '#e8603c', uSpeed: 0.7 }),
   };
+  const PLAIN = {
+    graphite: { dark: '#121418', light: '#eceef1' },
+    midnight: { dark: '#0d1424', light: '#e6ecf7' },
+    forest:   { dark: '#0e1914', light: '#e5f0ea' },
+    plum:     { dark: '#1a1220', light: '#f0e9f3' },
+  };
+  const known = (v) => !!v && (v in THEMES || v in PLAIN);
 
   const SCALE = 0.5, FPS = 30;
   const rgb = (h) => { const n = parseInt(h.slice(1), 16); return [(n >> 16 & 255) / 255, (n >> 8 & 255) / 255, (n & 255) / 255]; };
@@ -252,8 +262,17 @@ void main(){
   // setting (fetched below) wins if they differ.
   const THEME_KEY = 'bgTheme';
   const readTheme = () => {
-    try { const v = localStorage.getItem(THEME_KEY); return v && v in THEMES ? v : 'default'; } catch { return 'default'; }
+    try { const v = localStorage.getItem(THEME_KEY); return known(v) ? v : 'default'; } catch { return 'default'; }
   };
+
+  // Plain: a flat wallpaper colour. Otherwise glass.css's own wallpaper
+  // (under the shader, and the fallback without WebGL).
+  const wall = (name) => {
+    const s = document.documentElement.style, p = PLAIN[name];
+    if (p) { s.setProperty('--wall', 'none'); s.setProperty('--wall-base', p[modeNow()] || p.dark); }
+    else { s.removeProperty('--wall'); s.removeProperty('--wall-base'); }
+  };
+  wall(readTheme());
 
   function init() {
     const canvas = document.createElement('canvas');
@@ -294,7 +313,8 @@ void main(){
 
     let cur = null, themeName = readTheme();
     const use = () => {
-      const t = THEMES[themeName][modeNow()];
+      wall(themeName);
+      const t = THEMES[themeName]?.[modeNow()];
       const pr = t && program(t.frag);
       cur = pr ? { ...pr, mouse: !!t.mouse } : null;
       canvas.style.opacity = cur ? '1' : '0';
@@ -348,11 +368,11 @@ void main(){
     };
     // Frozen still follows the pointer on pointer shaders; only time stops.
     const moving = () => frozenAt == null || !!cur?.mouse;
-    const start = () => { if (!raf && !document.hidden && !still.matches && moving()) raf = requestAnimationFrame(frame); };
+    const start = () => { if (cur && !raf && !document.hidden && !still.matches && moving()) raf = requestAnimationFrame(frame); };
     const stop = () => { cancelAnimationFrame(raf); raf = 0; };
     const applyFrozen = (v) => { frozenAt = v; stop(); draw(); start(); };
     const retheme = () => { use(); stop(); draw(); start(); };
-    const applyTheme = (name) => { themeName = name in THEMES ? name : 'default'; retheme(); };
+    const applyTheme = (name) => { themeName = known(name) ? name : 'default'; retheme(); };
 
     window.switchboardBg = {
       set(on) {

@@ -1,0 +1,25 @@
+[
+  {
+    "version": "0.3.9",
+    "date": "2026-09-28",
+    "changes": [
+      "Missed calls now show up in the phone's recent calls right away, marked in red with \"Missed\".",
+      "Four plain themes with no animation: Graphite, Midnight, Forest and Plum. Pick one in Settings > General > Theme.",
+      "After an update, Switchboard shows what changed (this window)."
+    ]
+  },
+  {
+    "version": "0.3.8",
+    "date": "2026-09-25",
+    "changes": [
+      "Six new animated themes: Aurora, Marble, Mercury, Dawn, Vapor and Velvet. Pick one in Settings > General > Theme."
+    ]
+  },
+  {
+    "version": "0.3.7",
+    "date": "2026-09-25",
+    "changes": [
+      "Connect Switchboard to Claude from Settings, and use Claude Code as the AI for triage."
+    ]
+  }
+]

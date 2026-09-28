@@ -24,6 +24,7 @@ else if (app.isPackaged) {
   app.setPath('userData', join(app.getPath('appData'), 'Switchboard'));
   process.env.SWITCHBOARD_DATA = app.getPath('userData');
 } else app.setPath('userData', join(app.getPath('appData'), 'ooma-triage'));
+await import('../lib/whatsnew.mjs');   // first: notes a fresh install before anything writes data
 const settings = await import('../lib/settings.mjs');
 const { dataPath } = await import('../lib/paths.mjs');
 

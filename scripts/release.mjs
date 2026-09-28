@@ -18,6 +18,11 @@ const { version } = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
 const tag = 'v' + version;
 
 if (out('git', ['status', '--porcelain'])) throw new Error('Commit your changes first.');
+// The notes installed copies show after updating (lib/whatsnew.mjs) double as
+// the release notes.
+const entry = JSON.parse(readFileSync(join(root, 'changelog.json'), 'utf8')).find(e => e.version === version);
+if (!entry?.changes?.length) throw new Error(`Add a changelog.json entry for ${version} first.`);
+const notes = entry.changes.map(c => '- ' + c).join('\n');
 try { out('gh', ['release', 'view', tag]); throw new Error(`${tag} is already released. Bump the version in package.json.`); }
 catch (e) { if (e.message.includes('already released')) throw e; }
 
@@ -30,5 +35,5 @@ if (!readFileSync(join(root, 'dist/latest.yml'), 'utf8').includes(`version: ${ve
   throw new Error('dist/latest.yml is not for ' + version);
 
 run('git', ['push']);
-run('gh', ['release', 'create', tag, ...files, '--title', version, '--target', out('git', ['rev-parse', 'HEAD']), '--generate-notes']);
+run('gh', ['release', 'create', tag, ...files, '--title', version, '--target', out('git', ['rev-parse', 'HEAD']), '--notes', notes]);
 console.log(`\nReleased ${tag}. Installed copies pick it up within 4 hours (or at their next start).`);

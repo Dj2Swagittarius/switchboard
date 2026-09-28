@@ -76,6 +76,7 @@ svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;stroke-l
 .row .ic{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;
   background:var(--key);color:var(--accent);flex:none}
 .row .ic.miss{color:var(--urgent)}
+.row.miss b{color:var(--urgent)}
 .row .ic svg{width:15px;height:15px}
 .row b{display:block;font-weight:600;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .row span{display:block;font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
@@ -519,11 +520,13 @@ function watchParked(on) {
 // ---- recent calls / contact matches in the dialer ---------------------------------
 // Call history needs a signed-in account; without one (409) the dialer shows
 // contact matches only.
+// The server's call history can be minutes old after a quiet spell, so show
+// that at once, then ask again for an up-to-date copy (a missed call that
+// never reached this phone only shows up that way).
 let recent = null, recentAt = 0, recentOff = false;
-async function loadRecent() {
-  if (recent && Date.now() - recentAt < 60000) return renderList();
+async function fetchRecent(fresh) {
   try {
-    const r = await fetch('/api/calls?days=30');
+    const r = await fetch('/api/calls?days=30' + (fresh ? '&fresh=1' : ''));
     const j = await r.json().catch(() => ({}));
     if (!r.ok || j.error) { recent = null; recentOff = true; }
     else {
@@ -533,6 +536,11 @@ async function loadRecent() {
     }
   } catch { if (!recent) recentOff = true; }
   renderList();
+}
+async function loadRecent() {
+  if (recent && Date.now() - recentAt < 60000) return renderList();
+  await fetchRecent(false);
+  if (!recentOff) fetchRecent(true);
 }
 const ICON_OUT = '<svg viewBox="0 0 24 24"><path d="M7 17 17 7M9 7h8v8"/></svg>';
 const ICON_IN = '<svg viewBox="0 0 24 24"><path d="M17 7 7 17M15 17H7V9"/></svg>';
@@ -586,11 +594,17 @@ async function renderList() {
   box.appendChild(el('div', 'lh', 'Recent calls'));
   if (!recent) { box.appendChild(el('div', 'empty', 'Loading…')); return; }
   if (!recent.length) { box.appendChild(el('div', 'empty', 'No calls in the last 30 days.')); return; }
-  for (const c of recent) box.appendChild(rowFor({
-    icon: c.direction === 'in' ? ICON_IN : ICON_OUT, miss: c.direction === 'in' && !c.answered,
-    title: c.name || pretty(c.number), sub: c.name ? pretty(c.number) : (c.direction === 'in' ? (c.answered ? 'Incoming' : 'Missed') : 'Outgoing'),
-    when: ago(c.at), number: c.number,
-  }));
+  for (const c of recent) {
+    const miss = c.direction === 'in' && !c.answered;
+    const kind = c.direction === 'in' ? (c.answered ? 'Incoming' : 'Missed') : 'Outgoing';
+    const r = rowFor({
+      icon: c.direction === 'in' ? ICON_IN : ICON_OUT, miss,
+      title: c.name || pretty(c.number), sub: c.name ? pretty(c.number) + (miss ? ' · Missed' : '') : kind,
+      when: ago(c.at), number: c.number,
+    });
+    if (miss) r.classList.add('miss');
+    box.appendChild(r);
+  }
 }
 
 // ---- ringtone (Settings > Sounds) ------------------------------------------------

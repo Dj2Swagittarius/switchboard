@@ -284,11 +284,55 @@
     (document.body || document.documentElement).appendChild(bar);
   };
 
+  // What changed in the update that just installed, once (lib/whatsnew.mjs).
+  // Only in the app window, and not during first-run setup.
+  async function whatsNew() {
+    if (setup() || document.getElementById('sb-new')) return;
+    let notes = null;
+    try { const r = await fetch('/api/whats-new'); if (r.ok) notes = (await r.json()).notes; } catch {}
+    if (!notes?.entries?.length) return;
+    const el = (tag, css, text) => { const e = document.createElement(tag); if (css) e.style.cssText = css; if (text != null) e.textContent = text; return e; };
+    const veil = el('div', 'position:fixed;inset:0;z-index:1300;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;padding:18px;'
+      + 'font:14px/1.45 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif');
+    veil.id = 'sb-new';
+    const box = el('div', 'width:440px;max-width:100%;max-height:80vh;overflow:auto;padding:20px 22px 18px;border-radius:14px;'
+      + 'background:var(--menu,var(--panel,#171b21));color:var(--ink,#e6e9ee);border:1px solid var(--line,#252b33);box-shadow:0 18px 50px rgba(0,0,0,.45)');
+    box.setAttribute('role', 'dialog'); box.setAttribute('aria-modal', 'true'); box.setAttribute('aria-labelledby', 'sb-new-h');
+    const h = el('div', 'margin:0 0 2px;font-size:18px;font-weight:700;color:var(--ink,#e6e9ee)', `Switchboard updated to ${notes.version}`);
+    h.id = 'sb-new-h';
+    box.append(h, el('div', 'font-size:12.5px;color:var(--muted,#8b95a1);margin-bottom:10px', "Here's what's new."));
+    notes.entries.forEach((e, i) => {
+      if (notes.entries.length > 1) box.appendChild(el('div', 'margin:' + (i ? '12px' : '4px') + ' 0 4px;font-size:12px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--muted,#8b95a1)',
+        'Version ' + e.version + (e.date ? ' · ' + new Date(e.date + 'T12:00').toLocaleDateString([], { month: 'short', day: 'numeric' }) : '')));
+      const ul = el('ul', 'margin:0;padding-left:20px');
+      for (const c of e.changes || []) ul.appendChild(el('li', 'margin:3px 0', c));
+      box.appendChild(ul);
+    });
+    const ok = el('button', 'font:600 13px inherit;font-family:inherit;padding:8px 16px;border-radius:8px;cursor:pointer;'
+      + 'background:var(--accent,#5b8dff);color:#fff;border:1px solid var(--accent,#5b8dff)', 'Got it');
+    ok.type = 'button';
+    const foot = el('div', 'display:flex;justify-content:flex-end;margin-top:16px');
+    foot.appendChild(ok);
+    box.appendChild(foot);
+    const close = () => {
+      veil.remove(); document.removeEventListener('keydown', key, true);
+      fetch('/api/whats-new', { method: 'POST' }).catch(() => {});
+    };
+    const key = (e) => { if (e.key === 'Escape') { e.preventDefault(); close(); } };
+    ok.onclick = close;
+    veil.onclick = (e) => { if (e.target === veil) close(); };
+    document.addEventListener('keydown', key, true);
+    veil.appendChild(box);
+    document.body.appendChild(veil);
+    ok.focus();
+  }
+
   function start() {
     firstProfile.then((p) => {
       profile = p;
       apply();
       badges();
+      whatsNew();
       setInterval(() => { if (document.visibilityState === 'visible') refresh(); }, 30000);
     });
   }

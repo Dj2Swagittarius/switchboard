@@ -1,6 +1,6 @@
 {
   "name": "switchboard",
-  "version": "0.3.8",
+  "version": "0.3.9",
   "private": true,
   "description": "Desktop softphone and messaging client: calls, texts with pictures, voicemail, contacts, photos and fax.",
   "type": "module",
@@ -46,6 +46,7 @@
     ],
     "files": [
       "package.json",
+      "changelog.json",
       "server.mjs",
       "electron/main.mjs",
       "electron/icon.mjs",
