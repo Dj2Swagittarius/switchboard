@@ -20,8 +20,9 @@ before(async () => {
       if (req.url === '/api/connector/instructions') return send(200, { triage: { instructions: 'BE BRIEF', schema:
         { type: 'object', properties: { urgency: { type: 'string', enum: ['low', 'high'] } }, required: ['urgency'] } },
         recap: { instructions: 'R', schema: { type: 'object' } } });
-      if (req.url.startsWith('/api/connector/pending')) return send(200, { note: null, items: [{ id: 'm1', from: '+1555', known_role: 'customer',
-        line: '+1999', at: '2026-09-25T10:00:00Z', text: 'help', history: [], media: [{ n: 0, mime: 'image/png', image: true }] }] });
+      if (req.url.startsWith('/api/connector/pending')) return send(200, { note: null, items: [{ id: 'c:5550001111', from: '+1555', known_role: 'customer',
+        line: '+1999', at: '2026-09-25T10:00:00Z', transcript: [{ at: '2026-09-25T10:00:00Z', from: 'THEM', text: 'help' }],
+        photos: [{ id: 'm1', n: 0, mime: 'image/png' }] }] });
       if (req.url.startsWith('/api/connector/media')) { res.writeHead(200, { 'Content-Type': 'image/png' }); return res.end(PNG); }
       if (req.url.startsWith('/api/connector/triage')) {
         const j = JSON.parse(body);

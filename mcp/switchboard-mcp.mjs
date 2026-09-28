@@ -18,7 +18,7 @@ const VERSION = '1.0.0';
 const BASE = String(process.env.SWITCHBOARD_URL || 'http://127.0.0.1:8787').replace(/\/+$/, '');
 const TOKEN = String(process.env.SWITCHBOARD_TOKEN || '');
 const PROTOCOLS = ['2025-06-18', '2025-03-26', '2024-11-05'];
-const MAX_IMAGES = 12;          // per list_pending call, across all messages
+const MAX_IMAGES = 12;          // per list_pending call, across all conversations
 const NL = '\n';
 
 class Problem extends Error {}
@@ -74,16 +74,16 @@ async function tools() {
   return [
     {
       name: 'list_pending',
-      title: 'List texts waiting for triage',
-      description: 'Texts that arrived in Switchboard and are waiting for triage, oldest first, with recent thread context, the sender\'s known role, any photos, and the triage instructions to follow. Triage each one and call save_triage for it.',
+      title: 'List conversations waiting for triage',
+      description: 'Conversations in Switchboard with new texts, waiting for triage, oldest first: the recent transcript (THEM = the other person, US = this business), the sender\'s known role, any photos, and the triage instructions to follow. Triage each conversation as it stands now and call save_triage for it.',
       inputSchema: { type: 'object', properties: { limit: { type: 'integer', minimum: 1, maximum: 50, description: 'How many (default 10).' } } },
       annotations: { readOnlyHint: true },
     },
     {
       name: 'save_triage',
-      title: 'Save triage for one text',
-      description: 'Save your triage for one waiting text. suggested_reply is a DRAFT a person reviews in Switchboard before anything is sent; never say a reply was sent.',
-      inputSchema: { type: 'object', properties: { id: { type: 'string', description: 'The message id from list_pending.' }, ...(triage.properties ?? {}) },
+      title: 'Save triage for one conversation',
+      description: 'Save your triage for one waiting conversation. suggested_reply is a DRAFT a person reviews in Switchboard before anything is sent; never say a reply was sent.',
+      inputSchema: { type: 'object', properties: { id: { type: 'string', description: 'The conversation id from list_pending.' }, ...(triage.properties ?? {}) },
                      required: ['id', ...(triage.required ?? [])] },
       annotations: { destructiveHint: false, idempotentHint: true },
     },
@@ -117,21 +117,22 @@ async function listPending({ limit = 10 } = {}) {
   const out = [];
   if (j.note) out.push(text(j.note));
   if (!j.items.length) return [...out, text('Nothing is waiting for triage.')];
-  out.push(text(`${j.items.length} text${j.items.length === 1 ? '' : 's'} waiting for triage. Follow these instructions:` + NL + NL +
-    (s?.triage?.instructions ?? '') + NL + NL + 'Then call save_triage once per message, with its id.'));
+  out.push(text(`${j.items.length} conversation${j.items.length === 1 ? '' : 's'} waiting for triage. Follow these instructions:` + NL + NL +
+    (s?.triage?.instructions ?? '') + NL + NL + 'Then call save_triage once per conversation, with its id.'));
   let images = 0;
   for (const e of j.items) {
     out.push(text(JSON.stringify({ id: e.id, from: e.from, name: e.name || undefined, known_role: e.known_role,
-      line: e.line, at: e.at, text: e.text, earlier_in_thread: e.history }, null, 1)));
-    for (const m of e.media) {
-      if (!m.image) { out.push(text(`[${e.id} attachment ${m.n + 1}: ${m.mime || 'file'}, not an image]`)); continue; }
-      if (images >= MAX_IMAGES) { out.push(text(`[${e.id} photo ${m.n + 1}: not shown, too many photos in one call; ask for fewer messages]`)); continue; }
+      line: e.line, latest: e.at, transcript: e.transcript.map(t => `${t.at} ${t.from}: ${t.text}`) }, null, 1)));
+    // Newest photos first: they matter most for where things stand now.
+    for (const m of [...e.photos].reverse()) {
+      const label = `${e.id} photo (message ${m.id}, image ${m.n + 1})`;
+      if (images >= MAX_IMAGES) { out.push(text(`[${label}: not shown, too many photos in one call; ask for fewer conversations]`)); continue; }
       try {
-        const r = await call(`media?id=${encodeURIComponent(e.id)}&n=${m.n}`, { raw: true });
-        out.push(text(`${e.id} photo ${m.n + 1}:`),
+        const r = await call(`media?id=${encodeURIComponent(m.id)}&n=${m.n}`, { raw: true });
+        out.push(text(label + ':'),
                  { type: 'image', data: Buffer.from(await r.arrayBuffer()).toString('base64'), mimeType: r.headers.get('content-type') || 'image/jpeg' });
         images++;
-      } catch (err) { out.push(text(`[${e.id} photo ${m.n + 1} could not be fetched: ${err.message}]`)); }
+      } catch (err) { out.push(text(`[${label} could not be fetched: ${err.message}]`)); }
     }
   }
   return out;
@@ -165,7 +166,7 @@ const RUN = {
 // ---- prompts -----------------------------------------------------------------------
 const PROMPTS = [
   { name: 'triage-inbox', title: 'Triage my Switchboard inbox',
-    description: 'Triage every text waiting in Switchboard and save a draft reply for each.' },
+    description: 'Triage every conversation waiting in Switchboard and save a draft reply for each.' },
   { name: 'daily-recap', title: 'Write the Switchboard daily recap',
     description: 'Write the morning recap of a day\'s texts, calls and voicemail.',
     arguments: [{ name: 'date', description: 'YYYY-MM-DD, default yesterday', required: false }] },
@@ -174,8 +175,8 @@ const PROMPTS = [
 function prompt(name, args = {}) {
   if (name === 'triage-inbox') {
     return { description: PROMPTS[0].description, messages: [{ role: 'user', content: text(
-      'Triage my Switchboard inbox. Call list_pending, triage each message by the instructions it returns, ' +
-      'and call save_triage for every message. Replies are drafts only: never say anything was sent. ' +
+      'Triage my Switchboard inbox. Call list_pending, triage each conversation by the instructions it returns, ' +
+      'and call save_triage for every conversation. Replies are drafts only: never say anything was sent. ' +
       'Repeat list_pending until nothing is waiting, then tell me briefly what needs me first.') }] };
   }
   if (name === 'daily-recap') {
@@ -204,7 +205,7 @@ async function handle(req) {
           protocolVersion: PROTOCOLS.includes(params.protocolVersion) ? params.protocolVersion : PROTOCOLS[0],
           capabilities: { tools: {}, prompts: {} },
           serverInfo: { name: 'switchboard', title: 'Switchboard', version: VERSION },
-          instructions: 'Switchboard is this business\'s phone and texting app. Use list_pending and save_triage to triage waiting texts, ' +
+          instructions: 'Switchboard is this business\'s phone and texting app. Use list_pending and save_triage to triage conversations with new texts, ' +
             'get_day and save_recap for the daily recap. Replies you write are drafts a person reviews; you cannot send texts.',
         };
         break;

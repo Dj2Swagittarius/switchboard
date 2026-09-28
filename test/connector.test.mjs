@@ -5,43 +5,35 @@ process.env.SWITCHBOARD_CONNECTOR_TOKEN = 'a'.repeat(64);
 const connector = await import('../lib/connector.mjs');
 const store = await import('../lib/store.mjs');
 
-const msg = (id, at, text = 'Tech stuck at site, gate locked') =>
-  ({ id, remote: '+15550001111', local: '+15559990000', at, inbound: true, forModel: () => text });
 const answer = { category: 'dispatch_request', urgency: 'urgent', from_role: 'customer',
-  summary: 'Tech locked out', needs_human: true, reason: 'blocked', suggested_reply: 'On it.' };
+  summary: 'Tech locked out', needs_human: true, reason: 'blocked', suggested_reply: 'On it.',
+  situation: 'Tech at the gate, locked out.', open_items: ['gate code'], last_ask: 'code?', waiting_on: 'us' };
 
-test('entryFor builds an awaiting entry with history and media refs', () => {
-  const e = connector.entryFor(msg('m1', 2), { history: [msg('m0', 1, 'earlier')],
-    contact: { name: 'Sam', role: 'technician' },
-    rawMedia: [{ ooma_media_url: 'https://media/x', media: { mime_type: 'image/jpeg' } }] });
-  assert.equal(e.status, connector.AWAITING);
-  assert.equal(e.known_role, 'technician');
-  assert.deepEqual(e.history, [{ at: 1, inbound: true, text: 'earlier' }]);
-  assert.deepEqual(e.media, [{ url: 'https://media/x', mime: 'image/jpeg' }]);
-  store.add(e);
-});
-
-test('pending lists awaiting entries oldest first', () => {
-  store.add(connector.entryFor(msg('m-old', 1)));
-  store.add({ id: 'done', status: undefined, at: 0 });
-  assert.deepEqual(connector.pending().map(e => e.id), ['m-old', 'm1']);
+test('pending lists awaiting conversations oldest first', () => {
+  store.upsert('c:5550001111', { remote: '+15550001111', at: 2, status: connector.AWAITING, known_role: 'technician' });
+  store.upsert('c:5550002222', { remote: '+15550002222', at: 1, status: connector.AWAITING });
+  store.upsert('c:5550003333', { remote: '+15550003333', at: 0 });
+  assert.deepEqual(connector.pending().map(e => e.id), ['c:5550002222', 'c:5550001111']);
   assert.equal(connector.pending(1).length, 1);
 });
 
 test('saveTriage validates, applies, and uses the known role', () => {
   assert.equal(connector.saveTriage('nope', answer).code, 404);
-  const bad = connector.saveTriage('m1', { ...answer, urgency: 'eh' });
+  const bad = connector.saveTriage('c:5550001111', { ...answer, waiting_on: 'eh' });
   assert.equal(bad.code, 400);
-  assert.match(bad.errors[0], /urgency/);
-  const ok = connector.saveTriage('m1', answer);
+  assert.match(bad.errors[0], /waiting_on/);
+  const ok = connector.saveTriage('c:5550001111', answer);
   assert.equal(ok.ok, true);
-  assert.equal(ok.entry.urgency, 'urgent');
   assert.equal(ok.entry.from_role, 'technician');
   assert.equal('status' in ok.entry, false);
-  assert.equal('media' in ok.entry, false);
-  assert.deepEqual(connector.pending().map(e => e.id), ['m-old']);
-  // In the triage queue as an ordinary entry.
-  assert.ok(store.pending().some(e => e.id === 'm1' && e.summary === 'Tech locked out'));
+  assert.deepEqual(connector.pending().map(e => e.id), ['c:5550002222']);
+  assert.ok(store.pending().some(e => e.id === 'c:5550001111' && e.summary === 'Tech locked out'));
+});
+
+test('a conversation asked for on request leaves the queue once answered', () => {
+  store.upsert('c:5550004444', { remote: '+15550004444', at: 3, status: connector.AWAITING, keep_closed: true });
+  assert.equal(connector.saveTriage('c:5550004444', answer).ok, true);
+  assert.equal(store.all().find(e => e.id === 'c:5550004444').resolution, 'viewed');
 });
 
 test('authorized checks the bearer token', () => {
