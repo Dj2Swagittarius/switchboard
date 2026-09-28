@@ -77,17 +77,10 @@ select{font:inherit;padding:5px 8px;border-radius:7px;border:1px solid var(--lin
 .empty{text-align:center;color:var(--muted);padding:56px 20px}
 .note{font-size:12px;color:var(--muted)}
 .err{color:var(--urgent)}
-.thread{margin-top:10px;border-top:1px solid var(--line);padding-top:10px;display:none}
-.thread.open{display:block}
 .tsum{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin-bottom:9px}
 .tsum .lead{margin-bottom:6px}
 .tsum ul{margin:6px 0 0;padding-left:18px}
 .tsum .wait{font-size:12px;color:var(--muted);margin-top:6px}
-.turn{display:grid;grid-template-columns:64px 1fr;gap:9px;font-size:13px;padding:3px 0}
-.turn .w{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.04em;padding-top:2px}
-.turn.them .b{color:var(--ink)}
-.turn.us .b{color:var(--muted)}
-.turn .b{white-space:pre-wrap;word-break:break-word}
 .navlink{color:var(--muted);text-decoration:none;font-size:13px;padding:6px 10px;
   border:1px solid var(--line);border-radius:7px}
 .navlink:hover{color:var(--ink);border-color:var(--accent)}
@@ -181,7 +174,9 @@ function render() {
   app.textContent = '';
 
   const multi = state.lines.length > 1;
-  const items = filter ? state.pending.filter(e => same(e.local, filter)) : state.pending;
+  const rank = { urgent: 0, high: 1, normal: 2, low: 3 };
+  const items = (filter ? state.pending.filter(e => same(e.local, filter)) : state.pending)
+    .slice().sort((a, b) => ((rank[a.urgency] ?? 2) - (rank[b.urgency] ?? 2)) || (b.at - a.at));
 
   if (!items.length) {
     const d = document.createElement('div');
@@ -192,7 +187,7 @@ function render() {
     } else if (filter && state.pending.length) {
       d.innerHTML = 'Nothing on this line.<br><span class="note">Other lines have messages — switch to All lines.</span>';
     } else {
-      d.innerHTML = 'Queue empty.<br><span class="note">New messages appear here automatically.</span>';
+      d.innerHTML = 'Nothing waiting on you.<br><span class="note">Conversations with new texts appear here, and leave when you reply.</span>';
     }
     app.appendChild(d);
     return;
@@ -233,20 +228,46 @@ function render() {
     const body = document.createElement('div');
     body.className = 'body';
 
+    // Their texts since our last reply.
     const msg = document.createElement('div');
     msg.className = 'msg';
-    for (const line of String(e.text || '').split('\n')) {
+    const recent = e.recent || [];
+    if (!recent.length) { const d = document.createElement('div'); d.className = 'img'; d.textContent = '(no new texts)'; msg.appendChild(d); }
+    for (const r of recent) {
       const d = document.createElement('div');
-      if (/^\[image \d+:/.test(line)) d.className = 'img';
-      d.textContent = line;
+      for (const part of String(r.text || '').split(/(\[image \d+:[^\]]*\]|\[\d+ photos? attached\])/)) {
+        if (!part) continue;
+        const s = document.createElement('span');
+        if (/^\[/.test(part)) s.className = 'img';
+        s.textContent = part;
+        d.appendChild(s);
+      }
       msg.appendChild(d);
     }
     body.appendChild(msg);
 
+    // What's going on in the conversation as a whole.
     const sum = document.createElement('div');
-    sum.className = 'sum';
-    sum.textContent = waiting ? 'Waiting for triage from the Claude app. Ask Claude to "triage my Switchboard inbox", or reply now.'
-      : e.summary + (e.needs_human ? ' — ' + e.reason : '');
+    sum.className = 'tsum';
+    if (waiting) {
+      sum.textContent = 'Waiting for triage from the Claude app. Ask Claude to "triage my Switchboard inbox", or reply now.';
+    } else {
+      const lead = document.createElement('div'); lead.className = 'lead';
+      const b = document.createElement('b'); b.textContent = e.summary || '';
+      lead.appendChild(b);
+      if (e.situation) lead.append(' ', e.situation);
+      sum.appendChild(lead);
+      if ((e.open_items || []).length) {
+        const ul = document.createElement('ul');
+        for (const it of e.open_items) { const li = document.createElement('li'); li.textContent = it; ul.appendChild(li); }
+        sum.appendChild(ul);
+      }
+      const w = document.createElement('div'); w.className = 'wait';
+      w.textContent = ({ us: 'Waiting on you.', them: 'Waiting on them.', nobody: 'Nothing outstanding.' })[e.waiting_on] || '';
+      if (e.last_ask) w.textContent += '  Last ask: ' + e.last_ask;
+      if (e.needs_human && e.reason) w.textContent += '  Why: ' + e.reason;
+      sum.appendChild(w);
+    }
     body.appendChild(sum);
 
     const ta = document.createElement('textarea');
@@ -259,7 +280,11 @@ function render() {
     const sendBtn = document.createElement('button');
     sendBtn.className = 'primary'; sendBtn.textContent = 'Send';
     const rejBtn = document.createElement('button');
-    rejBtn.className = 'danger'; rejBtn.textContent = 'Dismiss';
+    rejBtn.textContent = 'Done';
+    rejBtn.title = 'Take it off the queue without replying. It comes back if they text again.';
+    const openBtn = document.createElement('button');
+    openBtn.textContent = 'Open conversation';
+    openBtn.onclick = () => { location.href = '/messages?remote=' + encodeURIComponent(e.remote); };
     const roleSel = document.createElement('select');
     for (const r of state.roles) {
       const o = document.createElement('option');
@@ -267,73 +292,11 @@ function render() {
       if (((known && known.role) || e.from_role) === r) o.selected = true;
       roleSel.appendChild(o);
     }
-    const thrBtn = document.createElement('button');
-    thrBtn.textContent = 'Catch me up';
-    thrBtn.title = 'Summarize this whole conversation';
     const grow2 = document.createElement('span'); grow2.className = 'grow';
     const out = document.createElement('span'); out.className = 'note';
-    acts.append(sendBtn, rejBtn, thrBtn, roleSel, grow2, out);
+    acts.append(sendBtn, rejBtn, openBtn, roleSel, grow2, out);
     body.appendChild(acts);
-
-    const thread = document.createElement('div');
-    thread.className = 'thread';
-    body.appendChild(thread);
     card.appendChild(body);
-
-    let loaded = false;
-    thrBtn.onclick = async () => {
-      if (loaded) {
-        thread.classList.toggle('open');
-        thrBtn.textContent = thread.classList.contains('open') ? 'Hide thread' : 'Catch me up';
-        return;
-      }
-      thrBtn.disabled = true; thrBtn.textContent = 'Reading…';
-      let d;
-      try {
-        d = await (await fetch('/api/thread?remote=' + encodeURIComponent(e.remote) + '&summary=1')).json();
-      } catch (err) { thrBtn.disabled = false; thrBtn.textContent = 'Catch me up';
-                      out.textContent = 'Could not load thread.'; return; }
-
-      thread.textContent = '';
-      if (d.summary) {
-        const box = document.createElement('div'); box.className = 'tsum';
-        const lead = document.createElement('div'); lead.className = 'lead';
-        lead.textContent = d.summary.summary; box.appendChild(lead);
-        if ((d.summary.open_items || []).length) {
-          const ul = document.createElement('ul');
-          for (const it of d.summary.open_items) {
-            const li = document.createElement('li'); li.textContent = it; ul.appendChild(li);
-          }
-          box.appendChild(ul);
-        }
-        const w = document.createElement('div'); w.className = 'wait';
-        const who = { us: 'Waiting on you.', them: 'Waiting on them.', nobody: 'Nothing outstanding.' };
-        w.textContent = who[d.summary.waiting_on] || '';
-        if (d.summary.last_ask) w.textContent += '  Last ask: ' + d.summary.last_ask;
-        box.appendChild(w);
-        thread.appendChild(box);
-      } else if (d.error) {
-        const er = document.createElement('div'); er.className = 'err';
-        er.textContent = 'Summary failed: ' + d.error;
-        thread.appendChild(er);
-      }
-
-      for (const t of (d.messages || [])) {
-        const row = document.createElement('div');
-        row.className = 'turn ' + (t.inbound ? 'them' : 'us');
-        const w = document.createElement('div'); w.className = 'w';
-        w.textContent = t.inbound ? 'them' : 'you';
-        const b = document.createElement('div'); b.className = 'b';
-        b.textContent = t.text || '(no text)';
-        row.append(w, b);
-        thread.appendChild(row);
-      }
-
-      loaded = true;
-      thread.classList.add('open');
-      thrBtn.disabled = false;
-      thrBtn.textContent = 'Hide thread';
-    };
 
     let armed = false;
     sendBtn.onclick = async () => {

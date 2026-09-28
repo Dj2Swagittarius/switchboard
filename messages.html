@@ -69,6 +69,20 @@ select,input{border:1px solid var(--line);background:var(--bg);padding:6px 9px;b
   background:var(--panel);flex:none}
 .chip{background:var(--them);border-radius:999px;padding:4px 12px;font-weight:600;font-variant-numeric:tabular-nums}
 .back{display:none}
+/* Conversation triage panel (Triage button in the thread header). */
+.tri{margin:10px 16px 0;padding:12px 14px;border:1px solid var(--line);border-radius:12px;background:var(--panel);flex:none;
+  max-height:40vh;overflow:auto;font-size:13.5px}
+.tri .tags{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px}
+.tri .tag{font-size:10.5px;padding:1px 8px;border-radius:999px;border:1px solid var(--line);color:var(--muted);
+  text-transform:uppercase;letter-spacing:.04em;font-weight:600}
+.tri .tag.urgent,.tri .tag.human{color:var(--urgent);border-color:var(--urgent)}
+.tri .tag.high{color:var(--high,#e8710a);border-color:var(--high,#e8710a)}
+.tri .lead b{display:block;margin-bottom:2px}
+.tri ul{margin:6px 0 0;padding-left:18px}
+.tri .wait{color:var(--muted);font-size:12.5px;margin-top:6px}
+.tri .draft{margin-top:8px;padding:8px 10px;border-radius:8px;background:var(--them);white-space:pre-wrap}
+.tri .acts{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+.tri .err{color:var(--urgent)}
 .msgs{flex:1;overflow:auto;padding:14px 18px;display:flex;flex-direction:column;gap:4px}
 .day{align-self:center;font-size:11.5px;color:var(--muted);margin:12px 0 6px}
 .m{max-width:min(70%,560px);display:flex;flex-direction:column;gap:3px}
@@ -721,6 +735,9 @@ async function openConv(c) {
     b.style.cssText = 'display:none;color:var(--muted);text-decoration:none;font-size:13px;padding:6px 10px;border:1px solid var(--line);border-radius:7px;cursor:pointer';
     h.appendChild(b);
   }
+  const triBtn = el('button', '', 'Triage');
+  triBtn.title = "What's going on in this conversation";
+  h.appendChild(triBtn);
   const callBtn = el('button', '', 'Call');
   callBtn.title = 'Call';
   callBtn.onclick = () => window.switchboardDial ? window.switchboardDial(c.remote) : (location.href = 'tel:' + c.remote);
@@ -730,6 +747,10 @@ async function openConv(c) {
   more.onclick = () => menu(more, convItems(c));
   h.appendChild(more);
   pane.appendChild(h);
+  const tri = el('div', 'tri'); tri.hidden = true;
+  pane.appendChild(tri);
+  waitFor = null;
+  triBtn.onclick = () => (tri.hidden ? triage(c, tri, false) : (tri.hidden = true));
 
   const msgs = el('div', 'msgs'); msgs.id = 'msgs';
   msgs.appendChild(el('div', 'empty', 'Loading…'));
@@ -740,6 +761,71 @@ async function openConv(c) {
   pane.appendChild(comp);
   setTimeout(() => comp.isConnected && comp.focusInput(), 0);
   await loadThread(true, { cachedFirst: true });
+}
+
+// ---- conversation triage ----------------------------------------------------------
+// The saved triage if it's current, else a fresh one (a few seconds on a local
+// model). With the Claude app as the AI platform the request goes to Claude and
+// the panel waits for its answer (waitFor, re-run on the next 'queue' event).
+let waitFor = null;
+async function triage(c, box, force) {
+  box.hidden = false;
+  const q = '/api/triage?remote=' + encodeURIComponent(c.remote) + '&line=' + encodeURIComponent(c.line);
+  const mine = () => open && open.remote === c.remote && open.line === c.line && box.isConnected;
+  box.textContent = '';
+  box.appendChild(el('div', 'wait', force ? 'Reading the conversation…' : 'Looking…'));
+  let d = null;
+  if (!force) { try { d = await (await fetch(q)).json(); } catch {} }
+  const saved = d && d.entry && (d.entry.summary || d.entry.status === 'awaiting_triage');
+  if (force || !d || d.error || d.stale || !saved) {
+    if (mine()) { box.textContent = ''; box.appendChild(el('div', 'wait', 'Reading the conversation…')); }
+    try { d = await (await fetch(q, { method: 'POST' })).json(); } catch (err) { d = { error: err.message }; }
+  }
+  if (!mine()) return;                 // moved to another conversation meanwhile
+  const e = d.entry;
+  box.textContent = '';
+  waitFor = null;
+  if (d.error) box.appendChild(el('div', 'err', "Couldn't triage this conversation: " + d.error));
+  else if (e && e.status === 'awaiting_triage') {
+    box.appendChild(el('div', 'wait', 'Waiting for Claude… Ask Claude to "triage my Switchboard inbox". This fills in when it has.'));
+    waitFor = () => triage(c, box, false);
+  } else if (e) {
+    const tags = el('div', 'tags');
+    for (const [t, cls] of [[e.urgency, e.urgency], [e.category && e.category.replace(/_/g, ' '), ''], [e.needs_human ? 'needs you' : '', 'human']])
+      if (t) tags.appendChild(el('span', 'tag ' + cls, t));
+    box.appendChild(tags);
+    const lead = el('div', 'lead');
+    lead.append(el('b', '', e.summary || ''), el('span', '', e.situation || ''));
+    box.appendChild(lead);
+    if ((e.open_items || []).length) {
+      const ul = el('ul');
+      for (const it of e.open_items) ul.appendChild(el('li', '', it));
+      box.appendChild(ul);
+    }
+    const w = ({ us: 'Waiting on you.', them: 'Waiting on them.', nobody: 'Nothing outstanding.' })[e.waiting_on] || '';
+    box.appendChild(el('div', 'wait', w + (e.last_ask ? '  Last ask: ' + e.last_ask : '') +
+      (e.triaged_at ? '  · Checked ' + when(Date.parse(e.triaged_at)) : '')));
+    if (e.suggested_reply) box.appendChild(el('div', 'draft', e.suggested_reply));
+  }
+  const acts = el('div', 'acts');
+  if (e && e.suggested_reply && e.status !== 'awaiting_triage') {
+    const use = el('button', 'primary', 'Use reply');
+    use.title = 'Put it in the message box. Nothing is sent until you press Send.';
+    use.onclick = () => {
+      const ta = composers.get(c.line + '|' + c.remote)?.querySelector('textarea');
+      if (!ta || ta.readOnly) return;
+      ta.value = e.suggested_reply;
+      ta.dispatchEvent(new Event('input', { bubbles: true }));
+      ta.focus();
+    };
+    acts.appendChild(use);
+  }
+  const again = el('button', '', 'Refresh');
+  again.onclick = () => triage(c, box, true);
+  const hide = el('button', '', 'Hide');
+  hide.onclick = () => { box.hidden = true; waitFor = null; };
+  acts.append(again, hide);
+  box.appendChild(acts);
 }
 
 function startCompose() {
@@ -1070,6 +1156,7 @@ function refreshSoon() {
 try {
   const es = new EventSource('/api/events');
   for (const ev of ['messages', 'inbound', 'item']) es.addEventListener(ev, refreshSoon);
+  es.addEventListener('queue', () => waitFor?.());   // Claude saved a triage we're waiting for
 } catch {}
 
 // Backstop refresh in case a live event is missed; skip while hidden.
