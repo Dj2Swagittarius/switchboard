@@ -1,5 +1,12 @@
 [
   {
+    "version": "0.4.5",
+    "date": "2026-09-30",
+    "changes": [
+      "In-call keypad: you now hear the touch-tone for each key, the digits you've pressed show above the keypad, and you can type digits on your keyboard while the keypad is open."
+    ]
+  },
+  {
     "version": "0.4.4",
     "date": "2026-09-30",
     "changes": [

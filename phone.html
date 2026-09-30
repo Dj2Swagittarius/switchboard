@@ -119,6 +119,11 @@ svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;stroke-l
 .ctl button:disabled{opacity:.35;cursor:not-allowed}
 .dtmf{display:none}
 .dtmf.on{display:grid}
+/* What's been pressed on the in-call keypad this call. */
+.dtmfshow{display:none;text-align:center;font-size:24px;font-weight:600;letter-spacing:.14em;min-height:34px;
+  padding:4px 16px 0;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden}
+.dtmfshow.on{display:block}
+.keys button.hit{background:var(--sel,rgba(91,141,255,.25))}
 .ctl button.ghost{visibility:hidden}
 .ctl button[hidden]{display:none}
 
@@ -241,6 +246,7 @@ svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;stroke-l
       <button class="pill blue" id="joinBtn">Transfer</button>
     </div>
     <div class="grow"></div>
+    <div class="dtmfshow" id="dtmfShow" aria-live="polite"></div>
     <div class="keys dtmf" id="dtmf"></div>
     <div class="ctl" id="ctl">
       <button id="muteBtn"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>Mute</button>
@@ -719,6 +725,7 @@ function showCall(what) {
   closeXfer();
   for (const b of ['#muteBtn', '#holdBtn', '#padBtn', '#mMute', '#mHold']) $(b).classList.remove('on');
   $('#dtmf').classList.remove('on');
+  paintDtmf();
   $('#mAnswer').hidden = !ringingIn;
   $('#mMute').hidden = $('#mHold').hidden = !call.answered;
   $('#mHang').title = ringingIn ? 'Decline' : second ? 'End all' : 'End call';
@@ -972,9 +979,47 @@ async function refreshDial() {
   renderList();
 }
 keypad($('#keys'), (k) => { $('#dial').value += k; refreshDial(); $('#dial').focus(); });
-keypad($('#dtmf'), async (k) => {
+// In-call keypad: the tone goes to the other end, you hear it here too, and
+// the digits pressed this call show above the keys.
+const DTMF_HZ = { 1: [697, 1209], 2: [697, 1336], 3: [697, 1477], 4: [770, 1209], 5: [770, 1336], 6: [770, 1477],
+  7: [852, 1209], 8: [852, 1336], 9: [852, 1477], '*': [941, 1209], 0: [941, 1336], '#': [941, 1477] };
+let toneCtx = null;
+function beep(k) {
+  const hz = DTMF_HZ[k];
+  if (!hz) return;
+  try {
+    toneCtx ??= new AudioContext();
+    const t = toneCtx.currentTime, g = toneCtx.createGain();
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(0.12, t + 0.01);
+    g.gain.setValueAtTime(0.12, t + 0.14);
+    g.gain.linearRampToValueAtTime(0, t + 0.16);
+    g.connect(toneCtx.destination);
+    for (const f of hz) { const o = toneCtx.createOscillator(); o.frequency.value = f; o.connect(g); o.start(t); o.stop(t + 0.17); }
+  } catch {}
+}
+function paintDtmf() {
+  const pressed = call?.dtmf || '';
+  $('#dtmfShow').textContent = pressed.length > 18 ? '…' + pressed.slice(-17) : pressed;
+  $('#dtmfShow').classList.toggle('on', $('#dtmf').classList.contains('on') || !!pressed);
+}
+async function pressDtmf(k) {
   if (!user || !call?.answered) return;
+  beep(k);
+  call.dtmf = ((call.dtmf || '') + k).slice(-40);
+  paintDtmf();
+  const b = [...$('#dtmf').children].find(x => x.firstChild?.nodeValue === k);
+  if (b) { b.classList.add('hit'); setTimeout(() => b.classList.remove('hit'), 150); }
   try { await user.sendDTMF(k); } catch (e) { $('#callErr').textContent = 'Tone failed'; }
+}
+keypad($('#dtmf'), pressDtmf);
+// Typing digits works too while the in-call keypad is open.
+document.addEventListener('keydown', (e) => {
+  if (!call?.answered || !$('#dtmf').classList.contains('on') || e.ctrlKey || e.altKey || e.metaKey) return;
+  if (e.target.closest?.('input,textarea,select')) return;
+  if (!/^[0-9*#]$/.test(e.key)) return;
+  e.preventDefault();
+  pressDtmf(e.key);
 });
 
 // SIP.js rejects answer() if anything in its synchronous "answered" step throws,
@@ -1510,7 +1555,7 @@ $('#hangBtn').onclick = () => (second ? endAll() : hangup());
 $('#mHang').onclick = () => (second ? endAll() : call && call.dir === 'in' && !call.answered ? decline() : hangup());
 $('#muteBtn').onclick = $('#mMute').onclick = toggleMute;
 $('#holdBtn').onclick = $('#mHold').onclick = toggleHold;
-$('#padBtn').onclick = () => { $('#dtmf').classList.toggle('on'); $('#padBtn').classList.toggle('on'); };
+$('#padBtn').onclick = () => { $('#dtmf').classList.toggle('on'); $('#padBtn').classList.toggle('on'); paintDtmf(); };
 $('#xferBtn').onclick = () => openXfer('transfer');
 $('#addBtn').onclick = () => openXfer('add');
 $('#parkBtn').onclick = park;
