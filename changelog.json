@@ -1,5 +1,12 @@
 [
   {
+    "version": "0.4.4",
+    "date": "2026-09-30",
+    "changes": [
+      "Make a call works during a call: pick who to call and your current caller stays on hold. Then Swap between them, Merge them, or Transfer. The Call buttons in Messages and Contacts dial straight away the same way."
+    ]
+  },
+  {
     "version": "0.4.3",
     "date": "2026-09-28",
     "changes": [

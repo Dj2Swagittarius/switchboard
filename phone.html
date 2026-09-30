@@ -361,7 +361,17 @@ function layout() {
 }
 
 function openDialer(number) {
-  if (call) { expanded = true; layout(); host.show(); return; }
+  // On a call: another one goes out with this caller on hold (the Add flow,
+  // then Swap / Merge / Transfer). With a number (a Call button elsewhere in
+  // the app) it rings straight away; without, pick who to call.
+  if (call) {
+    expanded = true; layout(); host.show();
+    if (!call.answered) return;
+    if (second) { $('#callErr').textContent = 'Two calls are already up. End one to make another.'; return; }
+    if (number != null && String(number).trim() && target(String(number))) consult(String(number), '');
+    else openXfer('call');
+    return;
+  }
   open = true;
   if (number != null && number !== '') { $('#dial').value = String(number); }
   $('#idleErr').textContent = '';
@@ -1065,10 +1075,12 @@ function openXfer(kind = 'transfer') {
   xPick = null;
   const head = $('#xHead');
   head.textContent = '';
+  const them = call.name || pretty(call.number) || 'this call';
   if (kind === 'add') head.appendChild(document.createTextNode('Add someone to this call'));
-  else head.append('Transfer ', el('b', '', call.name || pretty(call.number) || 'this call'), ' to…');
+  else if (kind === 'call') head.append('Call someone else. ', el('b', '', them), ' stays on hold.');
+  else head.append('Transfer ', el('b', '', them), ' to…');
   $('#xTalk').hidden = kind !== 'transfer';
-  $('#xGo').textContent = kind === 'add' ? 'Call' : 'Transfer';
+  $('#xGo').textContent = kind === 'transfer' ? 'Transfer' : 'Call';
   $('#xTo').value = '';
   $('#xErr').textContent = '';
   setXEnabled(false);
@@ -1089,7 +1101,7 @@ async function renderXfer() {
   box.textContent = '';
   box.appendChild(el('div', 'lh', q ? 'Matches' : 'Company'));
   if (!hits.length) box.appendChild(el('div', 'empty', typed
-    ? (xMode === 'add' ? 'Press Call to ring ' : 'Press Transfer to send the call to ') + (pretty(q) || q) + '.'
+    ? (xMode !== 'transfer' ? 'Press Call to ring ' : 'Press Transfer to send the call to ') + (pretty(q) || q) + '.'
     : 'No matches.'));
   for (const h of hits) {
     const r = rowFor({ icon: ICON_USER, title: h.title, sub: h.sub, number: h.number });
@@ -1107,7 +1119,7 @@ function doConsult() {
   consult(to, xPick?.title || '');
 }
 async function doXfer() {
-  if (xMode === 'add') return doConsult();
+  if (xMode !== 'transfer') return doConsult();
   const to = xPick?.number || $('#xTo').value.trim();
   const label = xPick?.title || pretty(to) || to;
   $('#xErr').textContent = '';
@@ -1121,7 +1133,7 @@ async function doXfer() {
   } catch (e) {
     $('#xErr').textContent = 'Transfer failed: ' + (e?.message || e);
     $('#xGo').disabled = false;
-  } finally { $('#xGo').textContent = xMode === 'add' ? 'Call' : 'Transfer'; }
+  } finally { $('#xGo').textContent = xMode === 'transfer' ? 'Transfer' : 'Call'; }
 }
 
 let parkNote = '';                      // shown in the dialer after the call ends
@@ -1525,7 +1537,7 @@ chan.onmessage = (e) => {
   if (m.type === 'ping') broadcast();
   if (m.type === 'reload') start();
   if (m.type === 'open') openDialer(m.number);
-  if (m.type === 'dial' && m.number) { openDialer(m.number); dial(m.number); }
+  if (m.type === 'dial' && m.number) { openDialer(m.number); if (!call) dial(m.number); }
   if (m.type === 'show') { host.show(); openDialer(); }
 };
 host.onOpen?.(() => openDialer());
