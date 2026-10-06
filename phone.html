@@ -754,6 +754,7 @@ function endCall(reason) {
   ringStop();
   ringbackStop();
   clearInterval(tick); tick = null;
+  clearInterval(mediaWatch); mediaWatch = null;
   host.idle();
   call = null;
   expanded = false;
@@ -823,12 +824,20 @@ async function start() {
     },
     reconnectionAttempts: 1000,
     reconnectionDelay: 5,
+    // SessionManager fixes registrations at 60 s and SIP.js refreshes at 99% of
+    // that, so an idle socket (any call: audio doesn't use it) goes 59.4 s
+    // between messages. Proxies commonly close WebSockets idle for 60 s, which
+    // dropped the connection, and the call with it, at random. Refresh at 80%.
+    registererOptions: { refreshFrequency: 80 },
     // Tones inside the audio stream (RFC 4733) — what phone menus listen for.
     sendDTMFUsingSessionDescriptionHandler: true,
     userAgentOptions: {
       authorizationUsername: c.authUsername || c.username,
       authorizationPassword: c.password,
       logBuiltinEnabled: false,
+      // A keep-alive (blank lines) every 20–25 s so the socket is never idle long
+      // enough for a proxy or router to close it.
+      transportOptions: { server: c.server, keepAliveInterval: 25 },
       // Settings > Phone > SIP trace: the app process picks up '[sip] ' lines
       // from this page's console and writes them to logs\sip-trace.log.
       ...(trace ? { logLevel: 'debug', logConnector: (level, category, label, content) =>
@@ -898,7 +907,7 @@ async function start() {
         pSession = null;
         if (!call) return;                           // already ended here (or a declined flip echo)
         if (second?.session) return promoteSecond(); // the other party is still with us
-        endCall(call && !call.answered
+        endCall(call.lost ? 'Call lost: the connection dropped' : call && !call.answered
           ? (call.dir === 'out' ? (REJECT_REASONS[call.rejectCode] ?? 'No answer') : 'Missed call')
           : '');
       },
@@ -909,6 +918,18 @@ async function start() {
       },
     },
   });
+  // When the connection drops, SessionManager hangs up every call before
+  // reconnecting. The audio doesn't go over that connection, so a connected
+  // call is fine through a short drop: hide it from that cleanup and let the
+  // reconnect happen around it. Rings and calls still connecting go as before.
+  const onDrop = sm.userAgent.delegate.onDisconnect;
+  sm.userAgent.delegate.onDisconnect = (err) => {
+    if (!err || !call?.answered) return onDrop(err);
+    const kept = sm.managedSessions;
+    sm.managedSessions = [];
+    try { return onDrop(err); }
+    finally { sm.managedSessions = kept; watchMedia(); }
+  };
   const u = makeUser(sm);
   user = u;
 
@@ -916,6 +937,33 @@ async function start() {
   catch (e) { setStatus('failed', 'Could not reach the phone server' + (e?.message ? ': ' + e.message : '')); }
   await registerNow(u);
   startWatchdog();
+}
+
+// After a drop kept a call up, the other side's hangup may never reach us (it
+// was sent toward the old connection). If no audio arrives for 20 s and we
+// haven't put them on hold, the call is gone: end it here.
+let mediaWatch = null;
+function watchMedia() {
+  clearInterval(mediaWatch);
+  let last = -1, still = 0;
+  mediaWatch = setInterval(async () => {
+    const s = pSession;
+    if (!call || !s) { clearInterval(mediaWatch); mediaWatch = null; return; }
+    if (user?.isHeld?.()) { still = 0; return; }
+    let bytes = 0;
+    try {
+      (await s.sessionDescriptionHandler.peerConnection.getStats()).forEach((r) => {
+        if (r.type === 'inbound-rtp' && r.kind === 'audio') bytes += r.bytesReceived || 0;
+      });
+    } catch { return; }
+    still = bytes === last ? still + 1 : 0;
+    last = bytes;
+    if (still >= 4) {
+      clearInterval(mediaWatch); mediaWatch = null;
+      call.lost = true;
+      s.dispose().catch(() => {});     // hangs up; onCallHangup ends the call
+    }
+  }, 5000);
 }
 
 // Register, remembering why it failed. 401/403 means the saved credentials are

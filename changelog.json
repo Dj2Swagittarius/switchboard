@@ -1,5 +1,12 @@
 [
   {
+    "version": "0.4.6",
+    "date": "2026-10-06",
+    "changes": [
+      "Calls no longer drop when the phone briefly loses its connection: the connection is kept alive, and a call in progress stays up while it reconnects."
+    ]
+  },
+  {
     "version": "0.4.5",
     "date": "2026-09-30",
     "changes": [
