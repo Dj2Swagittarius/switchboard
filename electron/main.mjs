@@ -62,6 +62,7 @@ const PLATFORM_PAGES = new Set(['/', '/messages', '/calls', '/parked', '/photos'
 
 let win = null;
 let phone = null;
+let runner = null;
 let tray = null;
 let quitting = false;
 let pending = 0;
@@ -167,6 +168,24 @@ function createPhoneView() {
   phone.webContents.on('console-message', (e, _level, message) => sipTrace(e?.message ?? message));
   phone.webContents.loadURL(ORIGIN + '/phone');
   win.on('resize', placePhone);
+}
+
+// A hidden, always-on window that runs Auto-dial in the background, so a run
+// keeps going when the main window navigates away from the Auto-dial page. Like
+// the phone view it keeps its own SIP connection and audio and is never
+// throttled; it does nothing until the Auto-dial page starts a run.
+function createAutodialRunner() {
+  runner = new BrowserWindow({
+    show: false, skipTaskbar: true,
+    webPreferences: {
+      sandbox: true, contextIsolation: true, nodeIntegration: false,
+      autoplayPolicy: 'no-user-gesture-required',
+      backgroundThrottling: false,
+    },
+  });
+  guard(runner);
+  runner.webContents.on('console-message', (e, _level, message) => sipTrace(e?.message ?? message));
+  runner.webContents.loadURL(ORIGIN + '/autodial-runner');
 }
 
 // Settings > Phone > SIP trace. The phone page prints SIP.js log lines with a
@@ -623,7 +642,7 @@ app.whenReady().then(async () => {
 
   createWindow(firstPage(await loadProfile()));
   createTray();
-  if (!SMOKE) createPhoneView();
+  if (!SMOKE) { createPhoneView(); createAutodialRunner(); }
   startUpdates();
   await loadPending();
 

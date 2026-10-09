@@ -537,12 +537,20 @@ const server = createServer(async (req, res) => {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
       return res.end(await readFile(new URL('./autodial.html', import.meta.url)));
     }
+    // The hidden background window that actually dials (so a run survives
+    // navigating away from the Auto-dial page). Served ungated; it no-ops until
+    // there's a job and a configured phone.
+    if (p === '/autodial-runner' || p === '/autodial-runner.html') {
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      return res.end(await readFile(new URL('./autodial-runner.html', import.meta.url)));
+    }
     if (p === '/api/autodial' && req.method === 'GET') return json(res, 200, autodial.state());
     if (p === '/api/autodial' && req.method === 'POST') {
       if (!fromApp(req)) return json(res, 403, { error: 'Open this from the Switchboard app.' });
       const b = await readBody(req);
       try {
-        if (b.action === 'start') return json(res, 200, autodial.start({ total: b.total, options: b.options }));
+        if (b.action === 'start') return json(res, 200, autodial.start({ numbers: b.numbers, options: b.options, lineId: b.lineId }));
+        if (b.action === 'stop') return json(res, 200, autodial.stop());
         if (b.action === 'append') return json(res, 200, autodial.append(b.result || {}));
         if (b.action === 'finish') return json(res, 200, autodial.finish());
         if (b.action === 'clear') return json(res, 200, autodial.clear());

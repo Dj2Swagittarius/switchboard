@@ -1,5 +1,12 @@
 [
   {
+    "version": "0.4.8",
+    "date": "2026-10-09",
+    "changes": [
+      "Auto-dial now keeps running when you leave the page: the dialing happens in the background, so you can switch to Messages or anything else and come back to watch it. The Auto-dial page shows the run live and lets you stop it."
+    ]
+  },
+  {
     "version": "0.4.7",
     "date": "2026-10-09",
     "changes": [

@@ -1,0 +1,221 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Auto-dial runner</title>
+<!--
+  Hidden background window. It does the actual dialing for Auto-dial so a run
+  keeps going when you navigate away from the /autodial page. It owns the SIP
+  connection and the audio (where the classifier can see it), watches the
+  server's job (GET /api/autodial), and appends each result. No UI.
+-->
+<audio id="mon" autoplay muted></audio>
+<script type="module">
+import { Web } from '/vendor/sipjs/index.js';
+
+const $ = (s) => document.querySelector(s);
+const digits = (s) => String(s || '').replace(/\D/g, '');
+const errText = (e) => e?.message || String(e || 'error');
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+
+const REJECT = {
+  486: 'Busy', 600: 'Busy', 404: 'Number not found', 484: 'Incomplete number', 480: 'Unavailable',
+  408: 'No answer', 603: 'Declined', 403: 'Call not allowed', 503: 'Service unavailable', 487: 'Cancelled',
+};
+const statusFromReject = (code) => (code === 486 || code === 600) ? 'busy'
+  : (code === 404 || code === 484 || code === 403) ? 'failed' : (code ? 'rejected' : 'no-answer');
+
+let cfg = null;
+function target(raw) {
+  const s = String(raw || '').replace(/[^\d*#+]/g, ''), d = digits(s);
+  let who = null;
+  if (/[*#]/.test(s)) who = s.length >= 2 ? s : null;
+  else if (d.length === 10) who = '+1' + d;
+  else if (d.length === 11 && d[0] === '1') who = '+' + d;
+  else if (d.length > 11 && d.length <= 15) who = '+' + d;
+  else if (d.length >= 2 && d.length <= 6) who = d;
+  return who && cfg ? { who, uri: 'sip:' + encodeURIComponent(who).replace(/%2B/g, '+') + '@' + cfg.realm } : null;
+}
+
+// ---- SIP (outbound only, never registered) ---------------------------------
+let sm = null, connectedLine = null, cur = null;
+async function fetchCfg(lineId) {
+  const url = lineId ? '/api/sip/device-config?id=' + encodeURIComponent(lineId) : '/api/sip/config';
+  try { const r = await fetch(url); const j = await r.json().catch(() => ({})); return r.ok ? j : null; }
+  catch { return null; }
+}
+async function connect(lineId) {
+  if (sm && connectedLine === lineId) return true;
+  if (sm) { try { await sm.disconnect(); } catch {} sm = null; }
+  cfg = await fetchCfg(lineId);
+  if (!cfg || !cfg.configured) return false;
+  sm = new Web.SessionManager(cfg.server, {
+    aor: 'sip:' + cfg.username + '@' + cfg.realm,
+    maxSimultaneousSessions: 1,
+    media: { constraints: { audio: true, video: false }, remote: { audio: $('#mon') } },
+    reconnectionAttempts: 1000, reconnectionDelay: 5,
+    userAgentOptions: {
+      authorizationUsername: cfg.authUsername || cfg.username,
+      authorizationPassword: cfg.password,
+      logBuiltinEnabled: false,
+      transportOptions: { server: cfg.server, keepAliveInterval: 25 },
+      sessionDescriptionHandlerFactoryOptions: {
+        peerConnectionConfiguration: { iceServers: cfg.stun ? [{ urls: cfg.stun }] : [] },
+        iceGatheringTimeout: 1500,
+      },
+    },
+    delegate: {
+      onCallReceived: (s) => { sm.decline(s).catch(() => {}); },
+      onCallAnswered: (s) => { if (cur && s === cur.session) cur.onAnswered(); },
+      onCallHangup: (s) => { if (cur && s === cur.session) cur.onEnded(); },
+    },
+  });
+  try { await sm.connect(); connectedLine = lineId; return true; }
+  catch { sm = null; return false; }
+}
+
+// ---- classifier (same heuristic as the page had) ---------------------------
+let audioCtx = null;
+function pickMime() {
+  for (const m of ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/ogg'])
+    if (window.MediaRecorder && MediaRecorder.isTypeSupported(m)) return m;
+  return '';
+}
+function frameStats(freq, binHz, bins) {
+  let peak = 0, peakBin = 0, sum = 0, band = 0, bandN = 0;
+  for (let i = 1; i < bins; i++) {
+    const v = freq[i]; sum += v;
+    if (v > peak) { peak = v; peakBin = i; }
+    const hz = i * binHz;
+    if (hz >= 300 && hz <= 3400) { band += v; bandN++; }
+  }
+  const avg = sum / bins;
+  return { peak, peakHz: peakBin * binHz, avg, bandAvg: bandN ? band / bandN : 0, tone: peak > 165 && avg > 0 && peak / Math.max(avg, 1) > 4.5 };
+}
+const median = (a) => a.length ? [...a].sort((x, y) => x - y)[a.length >> 1] : 0;
+const near = (a, b, tol) => Math.abs(a - b) <= tol;
+function classify(frames) {
+  if (!frames.length) return { classification: 'silence' };
+  const tones = frames.filter((f) => f.tone);
+  const toneRatio = tones.length / frames.length;
+  const bandAvg = frames.reduce((a, f) => a + f.bandAvg, 0) / frames.length;
+  if (toneRatio > 0.45) {
+    const fz = median(tones.map((f) => f.peakHz));
+    const distinct = new Set(tones.map((f) => Math.round(f.peakHz / 120))).size;
+    if (near(fz, 1100, 90)) return { classification: 'fax', subtype: 'CNG 1100 Hz' };
+    if (near(fz, 2100, 110) || near(fz, 2225, 110))
+      return distinct >= 3 ? { classification: 'modem', subtype: 'answer tone + handshake' }
+        : { classification: 'modem', subtype: 'answer tone ' + Math.round(fz) + ' Hz', note: 'fax or modem' };
+    return { classification: 'unknown', subtype: 'steady tone ' + Math.round(fz) + ' Hz' };
+  }
+  const early = frames.slice(0, Math.max(1, Math.round(frames.length * 0.4)));
+  const et = early.filter((f) => f.tone).map((f) => f.peakHz).sort((a, b) => a - b);
+  if (et.length >= 3 && et.find((h) => near(h, 950, 120)) && et.find((h) => near(h, 1400, 150)) && et.find((h) => near(h, 1780, 160)))
+    return { classification: 'sit', subtype: 'disconnected / intercept' };
+  if (bandAvg < 6) return { classification: 'silence' };
+  return { classification: 'voice', subtype: '' };
+}
+async function analyze(stream, secs, record, recId) {
+  const out = { classification: 'unknown', subtype: '', note: '', recording: '' };
+  if (!stream) return out;
+  audioCtx ??= new AudioContext();
+  if (audioCtx.state === 'suspended') { try { await audioCtx.resume(); } catch {} }
+  const src = audioCtx.createMediaStreamSource(stream);
+  const an = audioCtx.createAnalyser();
+  an.fftSize = 2048; an.smoothingTimeConstant = 0.3; src.connect(an);
+  const bins = an.frequencyBinCount, binHz = audioCtx.sampleRate / an.fftSize, freq = new Uint8Array(bins), frames = [];
+  let rec = null; const chunks = []; const mime = record ? pickMime() : '';
+  if (record) { try { rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined); rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); }; rec.start(); } catch { rec = null; } }
+  const start = performance.now();
+  await new Promise((resolve) => {
+    const tick = () => { an.getByteFrequencyData(freq); frames.push(frameStats(freq, binHz, bins)); if (performance.now() - start >= secs * 1000) return resolve(); setTimeout(tick, 30); };
+    tick();
+  });
+  if (rec && rec.state !== 'inactive') await new Promise((r) => { rec.onstop = r; try { rec.stop(); } catch { r(); } });
+  try { src.disconnect(); } catch {}
+  Object.assign(out, classify(frames));
+  if (chunks.length) {
+    try {
+      const blob = new Blob(chunks, { type: chunks[0].type || mime || 'audio/webm' });
+      const r = await fetch('/api/autodial/recording?id=' + encodeURIComponent(recId), { method: 'POST', headers: { 'Content-Type': blob.type }, body: blob });
+      const j = await r.json().catch(() => ({}));
+      if (r.ok && j.recording) out.recording = j.recording;
+    } catch {}
+  }
+  return out;
+}
+
+// ---- one call --------------------------------------------------------------
+async function dialOne(number, idx, o) {
+  const r = { number, status: '', classification: '', subtype: '', ringMs: 0, ringCount: 0, durationMs: 0, sipCode: 0, note: '', recording: '' };
+  const t = target(number);
+  if (!t) { r.status = 'failed'; r.note = 'Not a dialable number'; return r; }
+  let ringStart = 0, rejectCode = 0, answered = false, settle;
+  const settled = new Promise((res) => { settle = res; });
+  let inviter = null;
+  const onAnswered = () => {
+    if (answered) return; answered = true;
+    const answeredAt = Date.now();
+    r.ringMs = ringStart ? answeredAt - ringStart : 0; r.status = 'answered';
+    const stream = inviter?.sessionDescriptionHandler?.remoteMediaStream;
+    analyze(stream, o.listen, o.record, number + '_' + idx)
+      .then((a) => { Object.assign(r, a); r.durationMs = Date.now() - answeredAt; settle(); })
+      .catch(() => { r.classification = 'unknown'; settle(); });
+  };
+  const onEnded = () => {
+    if (answered) return;
+    r.ringMs = ringStart ? Date.now() - ringStart : 0; r.sipCode = rejectCode;
+    r.status = statusFromReject(rejectCode); r.note = REJECT[rejectCode] || ''; settle();
+  };
+  cur = { get session() { return inviter; }, onAnswered, onEnded };
+  try {
+    inviter = await sm.call(t.uri, { earlyMedia: true }, {
+      requestDelegate: {
+        onProgress: (res) => { const c = res?.message?.statusCode; if ((c === 180 || c === 183) && !ringStart) ringStart = Date.now(); if (c === 180) r.ringCount++; },
+        onReject: (res) => { rejectCode = res?.message?.statusCode || 0; },
+      },
+    });
+  } catch (e) { cur = null; r.status = 'failed'; r.note = errText(e); return r; }
+  const timer = setTimeout(() => { if (!answered) onEnded(); }, o.ring * 1000);
+  await settled;
+  clearTimeout(timer);
+  try { if (inviter) await sm.hangup(inviter); } catch {}
+  cur = null;
+  return r;
+}
+
+// ---- job loop: watch the server, run when told -----------------------------
+const api = (body) => fetch('/api/autodial', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).catch(() => {});
+let serverRunning = false, active = false, handledToken = 0;
+
+async function runJob(job) {
+  active = true; handledToken = job.token;
+  const o = {
+    ring: clamp(Number(job.options?.ring) || 30, 5, 90),
+    listen: clamp(Number(job.options?.listen) || 6, 2, 20),
+    gap: clamp(Number(job.options?.gap) || 0, 0, 120),
+    record: job.options?.record !== false,
+  };
+  const ok = await connect(job.lineId || '');
+  if (!ok) { await api({ action: 'append', result: { number: '', status: 'failed', note: 'Could not connect the phone line.' } }); await api({ action: 'finish' }); active = false; return; }
+  const nums = Array.isArray(job.numbers) ? job.numbers : [];
+  for (let i = job.results?.length || 0; i < nums.length; i++) {
+    if (!serverRunning) break;
+    const r = await dialOne(nums[i], i, o);
+    await api({ action: 'append', result: r });
+    if (serverRunning && i + 1 < nums.length && o.gap) await sleep(o.gap * 1000);
+  }
+  if (serverRunning) await api({ action: 'finish' });
+  active = false;
+}
+
+async function tick() {
+  let job = null;
+  try { job = await (await fetch('/api/autodial')).json(); } catch {}
+  if (!job) return;
+  serverRunning = !!job.running;
+  if (active && !serverRunning && cur?.session) { try { await sm.hangup(cur.session); } catch {} }   // stop: drop the call in progress
+  if (!active && serverRunning && job.token !== handledToken) runJob(job);
+}
+setInterval(tick, 1500);
+tick();
+</script>

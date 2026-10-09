@@ -1,6 +1,6 @@
 {
   "name": "switchboard",
-  "version": "0.4.7",
+  "version": "0.4.8",
   "private": true,
   "description": "Desktop softphone and messaging client: calls, texts with pictures, voicemail, contacts, photos and fax.",
   "type": "module",
@@ -57,6 +57,7 @@
       "!lib/autoreply.mjs",
       "account.html",
       "autodial.html",
+      "autodial-runner.html",
       "calls.html",
       "contacts.html",
       "fax.html",
