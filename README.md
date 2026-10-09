@@ -13,6 +13,14 @@ Triage drafts replies but never sends them on its own: drafts wait in a review
 queue. The command-line tools send only with an explicit `--send`, and
 auto-reply (`autoreply.json`) is off and dry-run by default.
 
+> **Disclaimer:** Switchboard was developed to work with Ooma Enterprise, but it
+> is an independent project — **this is not an official Ooma Enterprise app**,
+> and it is **not affiliated with, endorsed by, or sponsored by Ooma, Inc. or
+> Ooma Enterprise**. "Ooma" and any other product or company names mentioned are
+> the trademarks of their respective owners, used here only to describe
+> compatibility. Use at your own risk — there is no guarantee that all features
+> will work as intended.
+
 ## Install and run
 
 ```bash
