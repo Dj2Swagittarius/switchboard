@@ -185,7 +185,7 @@ async function dialOne(number, idx, o) {
 
 // ---- job loop: watch the server, run when told -----------------------------
 const api = (body) => fetch('/api/autodial', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).catch(() => {});
-let serverRunning = false, active = false, handledToken = 0;
+let serverRunning = false, serverPaused = false, active = false, handledToken = 0;
 
 async function runJob(job) {
   active = true; handledToken = job.token;
@@ -199,12 +199,13 @@ async function runJob(job) {
   if (!ok) { await api({ action: 'append', result: { number: '', status: 'failed', note: 'Could not connect the phone line.' } }); await api({ action: 'finish' }); active = false; return; }
   const nums = Array.isArray(job.numbers) ? job.numbers : [];
   for (let i = job.results?.length || 0; i < nums.length; i++) {
+    while (serverRunning && serverPaused) await sleep(600);   // paused: hold before the next call
     if (!serverRunning) break;
     const r = await dialOne(nums[i], i, o);
     await api({ action: 'append', result: r });
-    if (serverRunning && i + 1 < nums.length && o.gap) await sleep(o.gap * 1000);
+    if (serverRunning && !serverPaused && i + 1 < nums.length && o.gap) await sleep(o.gap * 1000);
   }
-  if (serverRunning) await api({ action: 'finish' });
+  if (serverRunning) await api({ action: 'finish' });   // reached the end (loop holds while paused, so this only fires when done)
   active = false;
 }
 
@@ -213,6 +214,7 @@ async function tick() {
   try { job = await (await fetch('/api/autodial')).json(); } catch {}
   if (!job) return;
   serverRunning = !!job.running;
+  serverPaused = !!job.paused;
   if (active && !serverRunning && cur?.session) { try { await sm.hangup(cur.session); } catch {} }   // stop: drop the call in progress
   if (!active && serverRunning && job.token !== handledToken) runJob(job);
 }

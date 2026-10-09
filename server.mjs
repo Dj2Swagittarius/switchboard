@@ -545,12 +545,15 @@ const server = createServer(async (req, res) => {
       return res.end(await readFile(new URL('./autodial-runner.html', import.meta.url)));
     }
     if (p === '/api/autodial' && req.method === 'GET') return json(res, 200, autodial.state());
+    if (p === '/api/autodial/progress' && req.method === 'GET') return json(res, 200, autodial.progress());
     if (p === '/api/autodial' && req.method === 'POST') {
       if (!fromApp(req)) return json(res, 403, { error: 'Open this from the Switchboard app.' });
       const b = await readBody(req);
       try {
         if (b.action === 'start') return json(res, 200, autodial.start({ numbers: b.numbers, options: b.options, lineId: b.lineId }));
         if (b.action === 'stop') return json(res, 200, autodial.stop());
+        if (b.action === 'pause') return json(res, 200, autodial.pause());
+        if (b.action === 'resume') return json(res, 200, autodial.resume());
         if (b.action === 'append') return json(res, 200, autodial.append(b.result || {}));
         if (b.action === 'finish') return json(res, 200, autodial.finish());
         if (b.action === 'clear') return json(res, 200, autodial.clear());

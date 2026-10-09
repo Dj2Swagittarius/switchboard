@@ -25,6 +25,7 @@
   .sb-badge{margin-left:auto;background:var(--accent,#5b8dff);color:#fff;border-radius:999px;font-size:11px;
     font-weight:700;min-width:20px;height:20px;display:none;align-items:center;justify-content:center;padding:0 6px}
   .sb-badge.show{display:inline-flex}
+  .sb-badge.ans{margin-left:4px;background:var(--ok,#1a7f37)}
   .sb-sep{height:1px;background:var(--line,#252b33);margin:8px 12px}
   .sb-bottom{padding:10px;border-top:1px solid var(--line,#252b33);display:grid;gap:8px}
   .sb-call{display:flex;align-items:center;justify-content:center;gap:9px;height:42px;border-radius:10px;border:0;
@@ -53,6 +54,7 @@
     .sb-brand{justify-content:center;padding:16px 0 12px}
     .sb-item{justify-content:center;padding:10px 0}
     .sb-badge{position:absolute;top:3px;right:6px;min-width:16px;height:16px;font-size:10px;padding:0 4px}
+    .sb-badge.ans{top:auto;bottom:3px;margin-left:0}
     .sb-me{justify-content:center}
   }`;
   const style = document.createElement('style');
@@ -134,7 +136,8 @@
       const on = here === href || (href !== '/' && here.startsWith(href));
       nav += `<a class="sb-item${on ? ' on' : ''}" href="${href}"${on ? ' aria-current="page"' : ''}${plat ? ' data-platform' : ''}` +
              `${feature ? ` data-feature="${feature}"` : ''}>` +
-             `${svg(key)}<span class="sb-label">${label}</span><span class="sb-badge" data-badge="${key}"></span></a>`;
+             `${svg(key)}<span class="sb-label">${label}</span><span class="sb-badge" data-badge="${key}"></span>` +
+             `${key === 'autodial' ? '<span class="sb-badge ans" data-badge="autodial-ans" title="Lines that answered"></span>' : ''}</a>`;
     }
     const setOn = here.startsWith('/settings') || here.startsWith('/account');
     sb.innerHTML =
@@ -224,6 +227,26 @@
     } catch {}
   }
 
+  // Auto-dial progress, shown even without an account (it's phone-only): a
+  // blue done/total count while a run is going, and a green count of lines that
+  // answered. Polled faster than the 30s nav poll so it tracks a live run.
+  async function autodialBadges() {
+    if (!sb) return;
+    let p;
+    try { p = await (await fetch('/api/autodial/progress')).json(); } catch { return; }
+    const prog = sb.querySelector('[data-badge="autodial"]');
+    const ans = sb.querySelector('[data-badge="autodial-ans"]');
+    if (prog) {
+      prog.textContent = p.running ? (p.done + '/' + p.total) : '';
+      prog.classList.toggle('show', !!p.running);
+      prog.title = p.paused ? 'Auto-dial — paused' : 'Auto-dial — in progress';
+    }
+    if (ans) {
+      ans.textContent = p.answered > 0 ? String(p.answered) : '';
+      ans.classList.toggle('show', p.answered > 0);
+    }
+  }
+
   // First-run setup gets no sidebar at all; without an account only the pages
   // that work without one show.
   function apply() {
@@ -251,6 +274,7 @@
     if (p) profile = p;
     apply();
     badges();
+    autodialBadges();
   }
 
   // Settings calls this after turning triage on/off (or Reset), so the sidebar
@@ -341,8 +365,11 @@
       profile = p;
       apply();
       badges();
+      autodialBadges();
       whatsNew();
       setInterval(() => { if (document.visibilityState === 'visible') refresh(); }, 30000);
+      // Auto-dial moves fast; keep its badges fresh while the window is visible.
+      setInterval(() => { if (document.visibilityState === 'visible') autodialBadges(); }, 2500);
     });
   }
 

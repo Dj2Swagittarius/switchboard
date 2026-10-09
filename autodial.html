@@ -76,6 +76,8 @@ audio{height:30px;vertical-align:middle}
   <button type="button" id="exportBtn">Export CSV</button>
   <button type="button" id="clearBtn">Clear</button>
   <button type="button" class="primary" id="startBtn">Start</button>
+  <button type="button" id="pauseBtn" hidden>Pause</button>
+  <button type="button" class="primary" id="resumeBtn" hidden>Resume</button>
   <button type="button" class="stop" id="stopBtn" hidden>Stop</button>
 </header>
 
@@ -186,9 +188,11 @@ async function stop() { $('#stopBtn').disabled = true; try { await api({ action:
 
 // ---- render -----------------------------------------------------------------
 let results = [];
-function setBusy(on) {
+function setBusy(on, paused) {
   $('#startBtn').hidden = on;
   $('#stopBtn').hidden = !on;
+  $('#pauseBtn').hidden = !on || paused;
+  $('#resumeBtn').hidden = !on || !paused;
   $('#list').disabled = $('#ring').disabled = $('#listen').disabled = $('#gap').disabled = $('#record').disabled = $('#line').disabled = on;
   $('#clearBtn').disabled = on;
 }
@@ -197,33 +201,46 @@ function tag(c) {
   const labels = { voice: 'Voice', fax: 'Fax', modem: 'Modem', sit: 'Disconnected', silence: 'Silence', unknown: 'Unknown' };
   return el('span', 'tag t-' + c, labels[c] || c);
 }
+// state: 'done' (has a result) | 'live' (dialing now) | 'queued' (waiting)
+function rowFor(i, r, state, run) {
+  const tr = el('tr', state === 'live' ? 'row-live' : '');
+  tr.append(el('td', 'meta', String(i + 1)));
+  tr.append(el('td', 'num', pretty(r.number)));
+  const st = el('td');
+  if (state === 'done') st.append(el('span', 'st-' + r.status, r.status || '—'));
+  else if (state === 'live') st.append(el('span', 'live', 'Calling…'));
+  else st.append(el('span', 'meta', run ? 'Queued' : 'Not called'));
+  tr.append(st);
+  const wt = el('td');
+  if (state === 'done') { const w = tag(r.classification); if (r.subtype) w.title = r.subtype; wt.append(w); if (r.note) wt.append(el('span', 'meta', ' ' + r.note)); }
+  else wt.append(el('span', 'meta', '—'));
+  tr.append(wt);
+  tr.append(el('td', 'meta', state === 'done' && r.ringMs ? clock(r.ringMs) : (state === 'done' && r.ringCount ? String(r.ringCount) : '—')));
+  tr.append(el('td', 'meta', state === 'done' && r.durationMs ? clock(r.durationMs) : '—'));
+  const rec = el('td');
+  if (state === 'done' && r.recording) { const a = el('audio'); a.controls = true; a.preload = 'none'; a.src = '/api/autodial/recording?name=' + encodeURIComponent(r.recording); rec.append(a); }
+  else rec.append(el('span', 'meta', '—'));
+  tr.append(rec);
+  return tr;
+}
 function render(job) {
   const box = $('#results');
-  const total = job.total || results.length;
-  const liveNum = job.running && Array.isArray(job.numbers) && results.length < job.numbers.length ? job.numbers[results.length] : null;
-  if (!results.length && !liveNum) {
+  const nums = Array.isArray(job.numbers) ? job.numbers : [];
+  const rows = Math.max(nums.length, results.length);
+  const total = job.total || nums.length || results.length;
+  if (!rows) {
     box.innerHTML = '<div class="empty">No run yet. Paste numbers above and press Start.</div>';
     $('#count').textContent = ''; $('#bar').style.width = '0'; return;
   }
   const t = document.createElement('table');
   t.innerHTML = '<thead><tr><th>#</th><th>Number</th><th>Status</th><th>What answered</th><th>Rings</th><th>Duration</th><th>Recording</th></tr></thead>';
   const body = el('tbody');
-  const row = (i, r, live) => {
-    const tr = el('tr', live ? 'row-live' : '');
-    tr.append(el('td', 'meta', String(i + 1)));
-    tr.append(el('td', 'num', pretty(r.number)));
-    const st = el('td'); st.append(live ? el('span', 'live', 'Calling…') : el('span', 'st-' + r.status, r.status || '—')); tr.append(st);
-    const wt = el('td'); const w = tag(r.classification); if (r.subtype) w.title = r.subtype; wt.append(w); if (r.note) wt.append(el('span', 'meta', ' ' + r.note)); tr.append(wt);
-    tr.append(el('td', 'meta', r.ringMs ? clock(r.ringMs) : (r.ringCount ? String(r.ringCount) : '—')));
-    tr.append(el('td', 'meta', r.durationMs ? clock(r.durationMs) : '—'));
-    const rec = el('td');
-    if (r.recording) { const a = el('audio'); a.controls = true; a.preload = 'none'; a.src = '/api/autodial/recording?name=' + encodeURIComponent(r.recording); rec.append(a); }
-    else rec.append(el('span', 'meta', '—'));
-    tr.append(rec);
-    return tr;
-  };
-  results.forEach((r, i) => body.append(row(i, r, false)));
-  if (liveNum) body.append(row(results.length, { number: liveNum }, true));
+  const dialing = job.running && !job.paused;
+  for (let i = 0; i < rows; i++) {
+    if (i < results.length) body.append(rowFor(i, results[i], 'done', job.running));
+    else if (i === results.length && dialing) body.append(rowFor(i, { number: nums[i] }, 'live', true));
+    else body.append(rowFor(i, { number: nums[i] ?? '' }, 'queued', job.running));
+  }
   t.append(body);
   box.replaceChildren(t);
   $('#count').textContent = (total ? results.length + ' / ' + total : results.length) + ' done';
@@ -231,22 +248,33 @@ function render(job) {
 }
 
 // ---- poll the server --------------------------------------------------------
-let running = false;
+let running = false, lastSig = '';
 async function refresh() {
   let job;
   try { job = await (await fetch('/api/autodial')).json(); } catch { return; }
   results = Array.isArray(job.results) ? job.results : [];
   running = !!job.running;
-  setBusy(running);
-  render(job);
-  if (running) $('#stat').textContent = 'Running — you can leave this page; it keeps going.';
+  const paused = !!job.paused;
+  const nums = Array.isArray(job.numbers) ? job.numbers : [];
+  setBusy(running, paused);
+  // While a run is going, show its full list in the (disabled) field too, so it
+  // survives navigating away and back.
+  if (running && nums.length) { const joined = nums.join('\n'); if ($('#list').value !== joined) $('#list').value = joined; }
+  // Rebuild the table only when something actually changed (big lists otherwise
+  // rebuild every poll).
+  const sig = results.length + ':' + nums.length + ':' + running + ':' + paused + ':' + (job.finishedAt || 0) + ':' + (job.total || 0);
+  if (sig !== lastSig) { lastSig = sig; render(job); }
+  if (running && paused) $('#stat').textContent = 'Paused at ' + results.length + ' of ' + (job.total || nums.length) + ' — press Resume to continue.';
+  else if (running) $('#stat').textContent = 'Running — you can leave this page; it keeps going.';
   else if (job.finishedAt) $('#stat').textContent = 'Finished ' + new Date(job.finishedAt).toLocaleString();
-  else if (job.startedAt) $('#stat').textContent = '';
+  else $('#stat').textContent = '';
 }
 
 // ---- wiring -----------------------------------------------------------------
 $('#startBtn').onclick = start;
 $('#stopBtn').onclick = stop;
+$('#pauseBtn').onclick = async () => { $('#pauseBtn').disabled = true; try { await api({ action: 'pause' }); } catch {} $('#pauseBtn').disabled = false; refresh(); };
+$('#resumeBtn').onclick = async () => { $('#resumeBtn').disabled = true; try { await api({ action: 'resume' }); } catch {} $('#resumeBtn').disabled = false; refresh(); };
 $('#exportBtn').onclick = () => { location.href = '/api/autodial/export'; };
 $('#clearBtn').onclick = async () => { if (running) return; try { await api({ action: 'clear' }); } catch {} refresh(); };
 $('#line').onchange = () => {

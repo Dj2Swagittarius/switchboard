@@ -1,5 +1,15 @@
 [
   {
+    "version": "0.4.9",
+    "date": "2026-10-09",
+    "changes": [
+      "Auto-dial now shows the whole list while a run is going — the numbers still waiting appear as “Queued”, the one being called as “Calling…”, and finished ones with their result — so you can see the full run after leaving the page and coming back. The numbers box also keeps the running list.",
+      "Auto-dial has Pause and Resume: hold the run between calls and pick it back up where it left off, without losing your place.",
+      "The sidebar shows auto-dial progress at a glance: a blue count of how far along the run is, and a green count of how many lines answered.",
+      "The Calls page is more compact: a dense list you can scan quickly, with the type, who, time and length on one line. Click any call to open its recording, AI summary and transcript, and a Call-back button."
+    ]
+  },
+  {
     "version": "0.4.8",
     "date": "2026-10-09",
     "changes": [

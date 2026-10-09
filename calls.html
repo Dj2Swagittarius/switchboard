@@ -30,9 +30,6 @@ header{position:sticky;top:0;z-index:5;background:var(--panel);border-bottom:1px
 h1{font-size:15px;margin:0;font-weight:650;letter-spacing:-.01em}
 .grow{flex:1}
 .meta{color:var(--muted);font-size:12px}
-a.navlink{color:var(--muted);text-decoration:none;font-size:13px;padding:6px 10px;
-  border:1px solid var(--line);border-radius:7px}
-a.navlink:hover{color:var(--ink);border-color:var(--accent)}
 button,select,input{font:inherit;border:1px solid var(--line);background:var(--panel);
   color:var(--ink);padding:6px 10px;border-radius:7px}
 button{cursor:pointer}
@@ -40,35 +37,61 @@ button:hover{border-color:var(--accent)}
 button:disabled{opacity:.5;cursor:not-allowed}
 button.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
 input[type=search]{min-width:200px;background:var(--bg)}
-main{padding:16px;max-width:980px;margin:0 auto;display:grid;gap:9px}
-.stats{display:flex;gap:18px;flex-wrap:wrap;padding:4px 2px 6px}
-.stat .n{font-size:22px;font-weight:640;font-variant-numeric:tabular-nums}
+main{padding:14px 16px;max-width:900px;margin:0 auto}
+
+/* compact stat strip */
+.stats{display:flex;gap:16px;flex-wrap:wrap;padding:2px 2px 12px}
+.stat{display:flex;align-items:baseline;gap:5px}
+.stat .n{font-size:16px;font-weight:650;font-variant-numeric:tabular-nums}
 .stat .k{font-size:12px;color:var(--muted)}
 .stat.bad .n{color:var(--urgent)}
-.card{background:var(--panel);border:1px solid var(--line);border-radius:11px;
-  box-shadow:var(--shadow);padding:10px 14px}
-.card.missed{border-left:3px solid var(--urgent)}
-.top{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
-.dir{width:22px;text-align:center;font-weight:700;color:var(--muted)}
-.dir.in{color:var(--accent)}
-.who{font-weight:650;font-variant-numeric:tabular-nums}
-.tag{font-size:11px;padding:2px 8px;border-radius:999px;border:1px solid var(--line);
-  color:var(--muted);text-transform:uppercase;letter-spacing:.04em;font-weight:600}
+
+/* dense list */
+.list{background:var(--panel);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);overflow:hidden}
+.item{border-top:1px solid var(--line)}
+.item:first-child{border-top:0}
+.row{display:grid;grid-template-columns:22px minmax(0,1fr) auto;align-items:center;gap:11px;
+  padding:7px 13px;cursor:pointer}
+.row:hover{background:color-mix(in srgb,var(--accent) 7%,transparent)}
+.item.open .row{background:color-mix(in srgb,var(--accent) 9%,transparent)}
+.dir{display:flex;align-items:center;justify-content:center;color:var(--muted)}
+.dir svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+.dir.in{color:var(--accent)} .dir.missed{color:var(--urgent)}
+.party{min-width:0;display:flex;align-items:baseline;gap:8px}
+.party b{font-weight:600;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.party .sub{color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.tags{display:flex;gap:5px;flex:none}
+.tag{font-size:10px;padding:1px 6px;border-radius:999px;border:1px solid var(--line);
+  color:var(--muted);text-transform:uppercase;letter-spacing:.04em;font-weight:700;white-space:nowrap}
 .tag.miss{color:var(--urgent);border-color:var(--urgent)}
 .tag.tense{color:var(--high);border-color:var(--high)}
-a.tel{color:var(--accent);text-decoration:none;font-size:13px;padding:4px 9px;
-  border:1px solid var(--line);border-radius:7px}
+.right{display:flex;align-items:center;gap:10px;justify-content:flex-end}
+.when{text-align:right;line-height:1.25;white-space:nowrap}
+.when .t{font-size:12.5px;font-variant-numeric:tabular-nums}
+.when .d{font-size:11.5px;color:var(--muted);font-variant-numeric:tabular-nums}
+.when .d.miss{color:var(--urgent)}
+.ico{width:28px;height:28px;flex:none;display:flex;align-items:center;justify-content:center;
+  border:1px solid var(--line);border-radius:8px;color:var(--muted)}
+.ico.on{color:var(--accent);border-color:var(--accent)}
+.ico svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.ico.ghost{border-color:transparent}
+.chev{color:var(--muted);transition:transform .15s}
+.item.open .chev{transform:rotate(90deg)}
+
+/* expanded detail */
+.detail{display:none;padding:4px 13px 13px;background:var(--bg);border-top:1px solid var(--line)}
+.item.open .detail{display:block}
+.detail audio{width:100%;height:36px;margin:8px 0}
+.acts{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:4px}
+a.tel{color:var(--accent);text-decoration:none;font-size:13px;padding:5px 11px;border:1px solid var(--line);border-radius:7px}
 a.tel:hover{border-color:var(--accent)}
-.more{margin-top:9px;display:grid;gap:8px}
-audio{width:100%;height:36px}
-.sum{font-size:13.5px}
-.kv{display:grid;grid-template-columns:86px 1fr;gap:3px 10px;font-size:13px}
+.sum{font-size:13.5px;margin-top:6px}
+.kv{display:grid;grid-template-columns:86px 1fr;gap:3px 10px;font-size:13px;margin-top:6px}
 .kv .k{color:var(--muted)}
 .kv ul{margin:0;padding-left:18px}
-.tx{white-space:pre-wrap;word-break:break-word;background:var(--bg);border:1px solid var(--line);
-  border-radius:8px;padding:10px 12px;font-size:13px;color:var(--muted);display:none}
+.tx{white-space:pre-wrap;word-break:break-word;background:var(--panel);border:1px solid var(--line);
+  border-radius:8px;padding:10px 12px;font-size:13px;color:var(--muted);display:none;margin-top:8px}
 .tx.open{display:block}
-.acts{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .note{font-size:12px;color:var(--muted)}
 .err{color:var(--urgent);font-size:13px}
 .empty{text-align:center;color:var(--muted);padding:48px 20px}
@@ -102,25 +125,35 @@ audio{width:100%;height:36px}
 
 <script>
 const $ = (s) => document.querySelector(s);
-const el = (tag, cls, text) => {
-  const e = document.createElement(tag);
-  if (cls) e.className = cls;
-  if (text != null) e.textContent = text;
-  return e;
+const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+const svg = (p) => { const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); s.setAttribute('viewBox', '0 0 24 24'); s.innerHTML = p; return s; };
+const ICON = {
+  in: '<path d="M7 7v10h10"/><path d="M17 7 7 17"/>',          // arrow down-left (incoming)
+  out: '<path d="M17 17V7H7"/><path d="M7 17 17 7"/>',          // arrow up-right (outgoing)
+  play: '<path d="M8 5v14l11-7z"/>',
+  chev: '<path d="M9 6l6 6-6 6"/>',
 };
 const pretty = (n) => {
   const d = String(n || '').replace(/\D/g, '').slice(-10);
   return d.length === 10 ? '(' + d.slice(0,3) + ') ' + d.slice(3,6) + '-' + d.slice(6) : (n || 'unknown');
 };
-const dur = (s) => s >= 60 ? Math.floor(s / 60) + 'm ' + String(s % 60).padStart(2, '0') + 's' : s + 's';
+const dur = (s) => s >= 60 ? Math.floor(s / 60) + 'm ' + String(s % 60).padStart(2, '0') + 's' : (s || 0) + 's';
+const when = (at) => {
+  const d = new Date(at), now = new Date();
+  const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  const sameDay = d.toDateString() === now.toDateString();
+  const yd = new Date(now); yd.setDate(now.getDate() - 1);
+  if (sameDay) return time;
+  if (d.toDateString() === yd.toDateString()) return 'Yest ' + time;
+  return d.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ', ' + time;
+};
 const saved = localStorage.getItem('theme');
 if (saved) document.documentElement.dataset.theme = saved;
 
-let calls = [];
-let busy = false;
+let calls = [], busy = false;
 
 function summaryBlock(t) {
-  const wrap = el('div', 'more');
+  const wrap = el('div');
   if (t.summary) {
     wrap.appendChild(el('div', 'sum', t.summary.summary));
     const kv = el('div', 'kv');
@@ -128,69 +161,31 @@ function summaryBlock(t) {
     kv.appendChild(el('div', '', t.summary.outcome || '—'));
     if ((t.summary.follow_ups || []).length) {
       kv.appendChild(el('div', 'k', 'follow-ups'));
-      const ul = el('ul');
-      for (const f of t.summary.follow_ups) ul.appendChild(el('li', '', f));
+      const ul = el('ul'); for (const f of t.summary.follow_ups) ul.appendChild(el('li', '', f));
       const cell = el('div'); cell.appendChild(ul); kv.appendChild(cell);
     }
-    if (t.summary.site_or_job) {
-      kv.appendChild(el('div', 'k', 'site / job'));
-      kv.appendChild(el('div', '', t.summary.site_or_job));
-    }
+    if (t.summary.site_or_job) { kv.appendChild(el('div', 'k', 'site / job')); kv.appendChild(el('div', '', t.summary.site_or_job)); }
     wrap.appendChild(kv);
-  } else if (t.summaryError) {
-    wrap.appendChild(el('div', 'err', 'Summary failed: ' + t.summaryError));
-  } else if (!String(t.text || '').trim()) {
-    wrap.appendChild(el('div', 'note', 'No speech detected in this recording.'));
-  }
+  } else if (t.summaryError) wrap.appendChild(el('div', 'err', 'Summary failed: ' + t.summaryError));
+  else if (!String(t.text || '').trim()) wrap.appendChild(el('div', 'note', 'No speech detected in this recording.'));
   const tx = el('div', 'tx', t.text || '');
   const acts = el('div', 'acts');
   if (t.text) {
     const tog = el('button', '', 'Show transcript');
-    tog.onclick = () => { tx.classList.toggle('open');
-      tog.textContent = tx.classList.contains('open') ? 'Hide transcript' : 'Show transcript'; };
+    tog.onclick = () => { tx.classList.toggle('open'); tog.textContent = tx.classList.contains('open') ? 'Hide transcript' : 'Show transcript'; };
     acts.appendChild(tog);
   }
   acts.appendChild(el('span', 'note', 'Machine transcription of both sides, no speaker labels. Names and places are often wrong.'));
-  wrap.appendChild(acts);
-  wrap.appendChild(tx);
+  wrap.appendChild(acts); wrap.appendChild(tx);
   return wrap;
 }
 
-function card(c) {
-  const box = el('div', 'card' + (c.answered ? '' : ' missed'));
-  const top = el('div', 'top');
-  const dir = el('span', 'dir ' + c.direction, c.direction === 'in' ? '↙' : '↗');
-  dir.title = c.direction === 'in' ? 'Incoming' : 'Outgoing';
-  top.appendChild(dir);
-  top.appendChild(el('span', 'who', c.name || pretty(c.number)));
-  if (c.name && c.number) top.appendChild(el('span', 'meta', pretty(c.number)));
-  if (c.role && c.role !== 'unknown') top.appendChild(el('span', 'tag', c.role));
-  if (c.internal) top.appendChild(el('span', 'tag', 'internal'));
-  if (!c.answered) top.appendChild(el('span', 'tag miss', c.direction === 'in' ? 'missed' : 'no answer'));
-  else top.appendChild(el('span', 'meta', dur(c.seconds)));
-  if (c.transcript && c.transcript.summary && c.transcript.summary.tone === 'tense')
-    top.appendChild(el('span', 'tag tense', 'tense'));
-  top.appendChild(el('span', 'grow'));
-  top.appendChild(el('span', 'meta', new Date(c.at).toLocaleString()));
-
-  if (c.number && !c.internal) {
-    const a = el('a', 'tel', 'Call back');
-    a.href = 'tel:' + c.number;             // fallback if dialpad.js isn't loaded
-    a.title = 'Call ' + pretty(c.number);
-    // In-app phone when it's connected; dialpad.js falls back to the OS handoff.
-    a.onclick = (e) => { if (window.switchboardCall) { e.preventDefault(); window.switchboardCall(c.number); } };
-    top.appendChild(a);
-  }
-  box.appendChild(top);
-
+function detailFor(c) {
+  const d = el('div', 'detail');
   if (c.recording) {
-    const more = el('div', 'more');
-    const audio = el('audio');
-    audio.controls = true;
-    audio.preload = 'none';
+    const audio = el('audio'); audio.controls = true; audio.preload = 'none';
     audio.src = '/api/recording/audio?id=' + encodeURIComponent(c.recording);
-    more.appendChild(audio);
-
+    d.appendChild(audio);
     const holder = el('div');
     if (c.transcript) holder.appendChild(summaryBlock(c.transcript));
     else {
@@ -198,30 +193,72 @@ function card(c) {
       const go = el('button', 'primary', 'Transcribe & summarize');
       go.onclick = async () => {
         if (busy) { $('#stat').textContent = 'one transcription at a time'; return; }
-        busy = true; go.disabled = true; go.textContent = 'Listening…';
-        $('#stat').textContent = 'transcribing…';
+        busy = true; go.disabled = true; go.textContent = 'Listening…'; $('#stat').textContent = 'transcribing…';
         try {
-          const r = await (await fetch('/api/recording/transcribe', { method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ id: c.recording }) })).json();
+          const r = await (await fetch('/api/recording/transcribe', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: c.recording }) })).json();
           if (r.error) throw new Error(r.error);
-          c.transcript = r;
-          holder.textContent = '';
-          holder.appendChild(summaryBlock(r));
-          $('#stat').textContent = '';
-        } catch (e) {
-          $('#stat').textContent = 'failed: ' + e.message;
-          go.disabled = false; go.textContent = 'Transcribe & summarize';
-        } finally { busy = false; }
+          c.transcript = r; holder.textContent = ''; holder.appendChild(summaryBlock(r)); $('#stat').textContent = '';
+        } catch (e) { $('#stat').textContent = 'failed: ' + e.message; go.disabled = false; go.textContent = 'Transcribe & summarize'; }
+        finally { busy = false; }
       };
-      acts.appendChild(go);
-      acts.appendChild(el('span', 'note', 'Runs locally. Longer calls take a minute or more.'));
+      acts.appendChild(go); acts.appendChild(el('span', 'note', 'Runs locally. Longer calls take a minute or more.'));
       holder.appendChild(acts);
     }
-    more.appendChild(holder);
-    box.appendChild(more);
+    d.appendChild(holder);
   }
-  return box;
+  const foot = el('div', 'acts');
+  foot.appendChild(el('span', 'note', new Date(c.at).toLocaleString() + (c.answered ? ' · ' + dur(c.seconds) : '')));
+  if (c.number && !c.internal) {
+    foot.appendChild(el('span', 'grow'));
+    const a = el('a', 'tel', 'Call back');
+    a.href = 'tel:' + c.number;
+    a.onclick = (e) => { if (window.switchboardCall) { e.preventDefault(); window.switchboardCall(c.number); } };
+    foot.appendChild(a);
+  }
+  d.appendChild(foot);
+  return d;
+}
+
+function item(c) {
+  const wrap = el('div', 'item');
+  const missedIn = !c.answered && c.direction === 'in';
+  const row = el('div', 'row');
+
+  const dir = el('div', 'dir ' + (missedIn ? 'missed' : c.direction));
+  dir.title = c.direction === 'in' ? 'Incoming' : 'Outgoing';
+  dir.appendChild(svg(ICON[c.direction] || ICON.out));
+  row.appendChild(dir);
+
+  const party = el('div', 'party');
+  party.appendChild(el('b', '', c.name || pretty(c.number)));
+  if (c.name && c.number) party.appendChild(el('span', 'sub', pretty(c.number)));
+  const tags = el('div', 'tags');
+  if (c.role && c.role !== 'unknown') tags.appendChild(el('span', 'tag', c.role));
+  if (c.internal) tags.appendChild(el('span', 'tag', 'internal'));
+  if (!c.answered) tags.appendChild(el('span', 'tag miss', c.direction === 'in' ? 'missed' : 'no answer'));
+  if (c.transcript && c.transcript.summary && c.transcript.summary.tone === 'tense') tags.appendChild(el('span', 'tag tense', 'tense'));
+  if (tags.children.length) party.appendChild(tags);
+  row.appendChild(party);
+
+  const right = el('div', 'right');
+  const w = el('div', 'when');
+  w.appendChild(el('div', 't', when(c.at)));
+  w.appendChild(el('div', 'd' + (c.answered ? '' : ' miss'), c.answered ? dur(c.seconds) : (missedIn ? 'Missed' : 'No answer')));
+  right.appendChild(w);
+  const play = el('div', 'ico' + (c.recording ? '' : ' ghost'));
+  if (c.recording) { play.appendChild(svg(ICON.play)); play.title = 'Play recording'; }
+  right.appendChild(play);
+  const chev = el('div', 'ico ghost chev'); chev.appendChild(svg(ICON.chev)); right.appendChild(chev);
+  row.appendChild(right);
+
+  let detail = null;
+  row.onclick = () => {
+    const open = wrap.classList.toggle('open');
+    if (open && !detail) { detail = detailFor(c); wrap.appendChild(detail); }
+    play.classList.toggle('on', open && !!c.recording);
+  };
+  wrap.appendChild(row);
+  return wrap;
 }
 
 function render() {
@@ -237,25 +274,28 @@ function render() {
   const app = $('#app');
   app.textContent = '';
   const stats = el('div', 'stats');
-  const stat = (n, k, cls) => { const s = el('div', 'stat ' + (cls || ''));
-    s.appendChild(el('div', 'n', String(n))); s.appendChild(el('div', 'k', k)); stats.appendChild(s); };
+  const stat = (n, k, cls) => { const s = el('div', 'stat ' + (cls || '')); s.appendChild(el('span', 'n', String(n))); s.appendChild(el('span', 'k', k)); stats.appendChild(s); };
   const missedIn = calls.filter(c => c.direction === 'in' && !c.answered).length;
   stat(calls.length, 'calls');
   stat(calls.filter(c => c.answered).length, 'connected');
-  stat(missedIn, 'missed incoming', missedIn ? 'bad' : '');
+  stat(missedIn, 'missed', missedIn ? 'bad' : '');
   stat(calls.filter(c => c.recording).length, 'recorded');
-  stat(Math.round(calls.reduce((s, c) => s + (c.answered ? c.seconds : 0), 0) / 60), 'minutes talked');
+  stat(Math.round(calls.reduce((s, c) => s + (c.answered ? c.seconds : 0), 0) / 60), 'min talked');
   app.appendChild(stats);
 
   $('#count').textContent = list.length + ' shown';
   if (!list.length) { app.appendChild(el('div', 'empty', 'No calls match.')); return; }
-  for (const c of list) app.appendChild(card(c));
+  const listEl = el('div', 'list');
+  for (const c of list) listEl.appendChild(item(c));
+  app.appendChild(listEl);
 }
 
 async function load() {
   $('#stat').textContent = 'loading…';
-  const d = await (await fetch('/api/calls?days=' + $('#days').value)).json();
-  calls = d.calls || [];
+  try {
+    const d = await (await fetch('/api/calls?days=' + $('#days').value)).json();
+    calls = d.calls || [];
+  } catch { calls = []; }
   $('#stat').textContent = '';
   render();
 }
