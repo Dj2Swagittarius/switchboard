@@ -32,7 +32,11 @@ app.setName('Switchboard');
 // The installer stamps its shortcuts with this id (build.appId in package.json);
 // Windows needs the two to match to show the app's notifications.
 const APP_ID = app.isPackaged ? 'com.switchboard.desktop' : 'Switchboard';
-const OLD_APP_ID = 'com.drew.ooma-triage';
+// Name of a Windows autostart entry an older pre-rename build left behind, which
+// the startup code below removes if it's still there. The old build's personal
+// id has been dropped from the source (public repo); this cleanup is now
+// best-effort for machines that still carry that stale entry.
+const OLD_APP_ID = 'com.switchboard.ooma-triage';
 // Launch-at-login: an installed copy is its own .exe; run from the project
 // folder, electron.exe needs the app folder passed to it.
 const LOGIN_ARGS = () => app.isPackaged ? [] : [ROOT];
