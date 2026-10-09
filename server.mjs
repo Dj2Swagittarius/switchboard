@@ -39,6 +39,7 @@ import { playable } from './lib/transcode.mjs';
 import * as fax from './lib/fax.mjs';
 import { dataPath, DATA_DIR, unpackedPath } from './lib/paths.mjs';
 import * as devices from './lib/devices.mjs';
+import * as autodial from './lib/autodial.mjs';
 
 // Thumbnails need an image decoder. When hosted inside the Electron app we
 // can use its nativeImage; under plain Node, thumbnails fall back to the
@@ -338,7 +339,10 @@ async function backgroundSignIn() {
 const PLATFORM_PAGES = new Set(['/', '/index.html', '/messages', '/messages.html', '/calls', '/calls.html',
   '/voicemail', '/voicemail.html', '/photos', '/photos.html', '/insights', '/insights.html',
   '/parked', '/parked.html', '/fax', '/fax.html']);
-const GATED_PAGES = new Set([...PLATFORM_PAGES, '/contacts', '/contacts.html', '/settings', '/settings.html']);
+// Auto-dial is a SIP-only tool (no account needed), but it still waits for setup
+// to finish — so it's gated, not platform-gated.
+const GATED_PAGES = new Set([...PLATFORM_PAGES, '/contacts', '/contacts.html', '/settings', '/settings.html',
+  '/autodial', '/autodial.html']);
 // Endpoints that only make sense with an account; without one they never call upstream.
 const PLATFORM_API = new Set(['/api/review/run', '/api/insights', '/api/conversations', '/api/conversation',
   '/api/media', '/api/photos', '/api/photos/zip', '/api/messages/send', '/api/messages/upload', '/api/messages/delete', '/api/conversation/delete', '/api/conversation/export', '/api/account/devices', '/api/calls', '/api/recording/audio',
@@ -521,6 +525,51 @@ const server = createServer(async (req, res) => {
         const [slots, c] = await Promise.all([parked(session), company(session).catch(() => ({}))]);
         return json(res, 200, { slots, park: c.park ?? null, retrieve: c.retrieve ?? null });
       } catch (e) { return json(res, 502, { error: e.message }); }
+    }
+
+    // ---- Auto-dial (lib/autodial.mjs) ------------------------------------------
+    // A tool for dialing a list of numbers one at a time and recording what
+    // answers (a person, an answering machine, a fax or modem tone, a
+    // disconnected-number tone, or no answer). The dialing and the audio
+    // classification happen in autodial.html; this server only keeps the run's
+    // results and the short per-call recordings on disk.
+    if (p === '/autodial' || p === '/autodial.html') {
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      return res.end(await readFile(new URL('./autodial.html', import.meta.url)));
+    }
+    if (p === '/api/autodial' && req.method === 'GET') return json(res, 200, autodial.state());
+    if (p === '/api/autodial' && req.method === 'POST') {
+      if (!fromApp(req)) return json(res, 403, { error: 'Open this from the Switchboard app.' });
+      const b = await readBody(req);
+      try {
+        if (b.action === 'start') return json(res, 200, autodial.start({ total: b.total, options: b.options }));
+        if (b.action === 'append') return json(res, 200, autodial.append(b.result || {}));
+        if (b.action === 'finish') return json(res, 200, autodial.finish());
+        if (b.action === 'clear') return json(res, 200, autodial.clear());
+        return json(res, 400, { error: 'unknown action' });
+      } catch (e) { return json(res, 400, { error: e.message }); }
+    }
+    // Store one call's recording (raw audio body, type from the header, id in the
+    // query). App-only, like the other writes.
+    if (p === '/api/autodial/recording' && req.method === 'POST') {
+      if (!fromApp(req)) return json(res, 403, { error: 'Open this from the Switchboard app.' });
+      try {
+        const buf = await readRaw(req, autodial.RECORDING_MAX, 'That recording is too large.');
+        const name = autodial.saveRecording(url.searchParams.get('id'), buf, String(req.headers['content-type'] || '').split(';')[0]);
+        return json(res, 200, { ok: true, recording: name });
+      } catch (e) { return json(res, 400, { error: e.message }); }
+    }
+    if (p === '/api/autodial/recording' && req.method === 'GET') {
+      const file = autodial.recordingPath(url.searchParams.get('name'));
+      if (!file) return json(res, 404, { error: 'not found' });
+      try {
+        res.writeHead(200, { 'Content-Type': autodial.recordingType(url.searchParams.get('name')), 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
+        return res.end(await readFile(file));
+      } catch { return json(res, 404, { error: 'not found' }); }
+    }
+    if (p === '/api/autodial/export') {
+      res.writeHead(200, { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': attachment('autodial-' + new Date().toISOString().slice(0, 10) + '.csv') });
+      return res.end(autodial.csv());
     }
 
     if (p === '/api/contacts' && req.method === 'POST') {
@@ -799,6 +848,23 @@ const server = createServer(async (req, res) => {
         return json(res, 200, { ok: true, account: profile.status(session, { loginError }),
           device: { name: got.name, reused: !!got.reused, created: b.action === 'create' && !got.reused, webrtc: got.webrtc ?? true,
             routeLost: got.routeLost ?? [] } });
+      } catch (e) { return json(res, 400, { error: e.message }); }
+    }
+
+    // SIP login for a different one of the user's own phone devices, so
+    // Auto-dial can place calls on it instead of this computer's phone (keeping
+    // the main line free). Read-only: it reads the device and returns its
+    // existing SIP login, exactly like picking it in setup would — it never
+    // creates or changes a device.
+    if (p === '/api/sip/device-config') {
+      if (!fromApp(req)) return json(res, 403, { error: 'Open this from the Switchboard app.' });
+      if (!platformUp()) return json(res, 409, NO_ACCOUNT);
+      try {
+        const d = await devices.useMine(session, url.searchParams.get('id'));
+        const base = profile.sipConfig();
+        if (!base.realm || !base.server) return json(res, 400, { error: 'The phone server isn’t set up.' });
+        return json(res, 200, { configured: true, realm: base.realm, server: base.server, stun: base.stun,
+          username: d.username, authUsername: '', password: d.password, webrtc: d.webrtc, name: d.name });
       } catch (e) { return json(res, 400, { error: e.message }); }
     }
 

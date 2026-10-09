@@ -1,0 +1,516 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Auto-dial</title>
+<style>
+:root{
+  --bg:#f6f7f9; --panel:#fff; --ink:#14171c; --muted:#6b7480; --line:#e3e6ea;
+  --accent:#2f6df6; --urgent:#d93025; --high:#e8710a; --ok:#1a7f37;
+  --shadow:0 1px 2px rgba(0,0,0,.05),0 4px 12px rgba(0,0,0,.05);
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){
+  --bg:#0f1216; --panel:#171b21; --ink:#e6e9ee; --muted:#8b95a1; --line:#252b33;
+  --accent:#5b8dff; --urgent:#ff6b5e; --high:#ffa04d; --ok:#4ade80; --shadow:0 1px 2px rgba(0,0,0,.4);
+}}
+:root[data-theme=dark]{
+  --bg:#0f1216; --panel:#171b21; --ink:#e6e9ee; --muted:#8b95a1; --line:#252b33;
+  --accent:#5b8dff; --urgent:#ff6b5e; --high:#ffa04d; --ok:#4ade80; --shadow:0 1px 2px rgba(0,0,0,.4);
+}
+:root{color-scheme:light dark}
+:root[data-theme=light]{color-scheme:light}
+:root[data-theme=dark]{color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font:14px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+header{position:sticky;top:0;z-index:5;background:var(--panel);
+  border-bottom:1px solid var(--line);display:flex;align-items:center;gap:12px;padding:10px 16px}
+h1{font-size:15px;margin:0;font-weight:650;letter-spacing:-.01em}
+.grow{flex:1}
+.meta{color:var(--muted);font-size:12px}
+button{font:inherit;border:1px solid var(--line);background:var(--panel);color:var(--ink);
+  padding:6px 11px;border-radius:7px;cursor:pointer}
+button:hover{border-color:var(--accent)}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+button.stop{background:var(--urgent);border-color:var(--urgent);color:#fff;font-weight:600}
+button:disabled{opacity:.5;cursor:not-allowed}
+main{padding:16px;max-width:1040px;margin:0 auto;display:grid;gap:14px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:11px;box-shadow:var(--shadow);padding:14px 16px}
+.card h2{font-size:13px;margin:0 0 10px;font-weight:650;letter-spacing:.01em}
+label{display:block;font-size:12.5px;color:var(--muted);margin:0 0 4px}
+textarea{width:100%;min-height:120px;resize:vertical;font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:9px;padding:9px 11px}
+.opts{display:flex;flex-wrap:wrap;gap:16px;align-items:flex-end;margin-top:12px}
+.opt{display:flex;flex-direction:column;gap:2px}
+.opt input[type=number]{width:84px;background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:7px;padding:6px 8px;font:inherit}
+.opt select{min-width:200px;max-width:280px;background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:7px;padding:6px 8px;font:inherit}
+.chk{flex-direction:row;align-items:center;gap:7px;color:var(--ink);font-size:13px}
+.chk input{width:16px;height:16px}
+.banner{border:1px solid var(--high);background:color-mix(in srgb,var(--high) 10%,transparent);
+  border-radius:9px;padding:10px 12px;font-size:12.5px;line-height:1.5}
+.banner b{color:var(--high)}
+.prog{height:8px;border-radius:5px;background:var(--line);overflow:hidden}
+.prog>div{height:100%;background:var(--accent);width:0;transition:width .3s}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{text-align:left;padding:7px 9px;border-bottom:1px solid var(--line);vertical-align:middle}
+th{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600;position:sticky;top:0;background:var(--panel)}
+td.num{font-variant-numeric:tabular-nums;white-space:nowrap}
+.tag{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11.5px;font-weight:600;white-space:nowrap}
+.t-voice{background:color-mix(in srgb,var(--ok) 18%,transparent);color:var(--ok)}
+.t-fax,.t-modem{background:color-mix(in srgb,var(--accent) 18%,transparent);color:var(--accent)}
+.t-sit{background:color-mix(in srgb,var(--urgent) 16%,transparent);color:var(--urgent)}
+.t-silence,.t-unknown{background:var(--line);color:var(--muted)}
+.st-answered{color:var(--ok)} .st-busy,.st-rejected,.st-failed{color:var(--urgent)} .st-no-answer{color:var(--muted)}
+.live{color:var(--accent);font-weight:600}
+audio{height:30px;vertical-align:middle}
+.empty{text-align:center;color:var(--muted);padding:40px 20px}
+.err{color:var(--urgent)}
+.row-live{background:color-mix(in srgb,var(--accent) 7%,transparent)}
+</style>
+
+<script src="/nav.js"></script>
+<header>
+  <h1>Auto-dial</h1>
+  <span class="meta" id="count"></span>
+  <span class="grow"></span>
+  <span class="meta" id="stat"></span>
+  <button type="button" id="exportBtn">Export CSV</button>
+  <button type="button" id="clearBtn">Clear</button>
+  <button type="button" class="primary" id="startBtn">Start</button>
+  <button type="button" class="stop" id="stopBtn" hidden>Stop</button>
+</header>
+
+<main>
+  <div class="banner">
+    <b>Before you run this:</b> auto-dialing is for inventorying numbers you own or are authorized to test
+    (finding which lines are a modem, fax, voice, or disconnected). In the US, dialing numbers you aren't
+    authorized to call can violate the TCPA, state autodialer laws, and do-not-call / time-of-day rules.
+    You are responsible for having the right to call every number in the list. Calls go out one at a time,
+    paced, from your own phone line.
+  </div>
+
+  <div class="card" id="setup">
+    <h2>Numbers</h2>
+    <label for="list">One per line (or separated by commas / spaces). 10-digit, 1+10, or +E.164.</label>
+    <textarea id="list" placeholder="(555) 010-0001&#10;555-010-0002&#10;+15550100003"></textarea>
+    <div class="opts">
+      <div class="opt"><label for="line">Dial out on</label>
+        <select id="line"><option value="">This app's phone (main line)</option></select></div>
+      <div class="opt"><label for="ring">Ring timeout (s)</label><input type="number" id="ring" min="5" max="90" value="30"></div>
+      <div class="opt"><label for="listen">Listen after answer (s)</label><input type="number" id="listen" min="2" max="20" value="6"></div>
+      <div class="opt"><label for="gap">Gap between calls (s)</label><input type="number" id="gap" min="0" max="120" value="3"></div>
+      <div class="opt chk"><input type="checkbox" id="record" checked><label for="record" style="margin:0">Record the answer audio</label></div>
+      <div class="opt chk"><input type="checkbox" id="monitor"><label for="monitor" style="margin:0">Play audio while dialing</label></div>
+    </div>
+    <div class="meta" id="setupNote" style="margin-top:10px"></div>
+  </div>
+
+  <div class="card">
+    <div class="prog"><div id="bar"></div></div>
+    <div id="results"><div class="empty">No run yet. Paste numbers above and press Start.</div></div>
+  </div>
+</main>
+
+<audio id="mon" autoplay></audio>
+
+<script type="module">
+import { Web } from '/vendor/sipjs/index.js';
+
+const $ = (s) => document.querySelector(s);
+const saved = localStorage.getItem('theme');
+if (saved) document.documentElement.dataset.theme = saved;
+
+const digits = (s) => String(s || '').replace(/\D/g, '');
+const pretty = (n) => {
+  const d = digits(n).slice(-10);
+  return d.length === 10 ? '(' + d.slice(0,3) + ') ' + d.slice(3,6) + '-' + d.slice(6) : String(n || '');
+};
+const errText = (e) => e?.message || String(e || 'error');
+const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+const clock = (ms) => { const s = Math.max(0, Math.round(ms / 1000)); return s + 's'; };
+// Error text always goes in as plain text, never HTML.
+function setupErr(msg) { const n = $('#setupNote'); n.textContent = ''; n.append(el('span', 'err', msg)); }
+
+const REJECT = {
+  486: 'Busy', 600: 'Busy', 404: 'Number not found', 484: 'Incomplete number', 480: 'Unavailable',
+  408: 'No answer', 603: 'Declined', 403: 'Call not allowed', 503: 'Service unavailable', 487: 'Cancelled',
+};
+function statusFromReject(code) {
+  if (code === 486 || code === 600) return 'busy';
+  if (code === 404 || code === 484 || code === 403) return 'failed';
+  return code ? 'rejected' : 'no-answer';
+}
+
+// ---- turn typed input into a SIP target on our realm ------------------------
+let cfg = null;
+function target(raw) {
+  const s = String(raw || '').replace(/[^\d*#+]/g, '');
+  const d = digits(s);
+  let who = null;
+  if (/[*#]/.test(s)) who = s.length >= 2 ? s : null;
+  else if (d.length === 10) who = '+1' + d;
+  else if (d.length === 11 && d[0] === '1') who = '+' + d;
+  else if (d.length > 11 && d.length <= 15) who = '+' + d;
+  else if (d.length >= 2 && d.length <= 6) who = d;
+  return who && cfg ? { who, uri: 'sip:' + encodeURIComponent(who).replace(/%2B/g, '+') + '@' + cfg.realm } : null;
+}
+function parseList(text) {
+  const out = [], seen = new Set();
+  for (const tok of String(text || '').split(/[\s,;]+/)) {
+    const t = target(tok);
+    if (!t) continue;
+    if (seen.has(t.who)) continue;
+    seen.add(t.who);
+    out.push(t.who);
+  }
+  return out;
+}
+
+// ---- SIP: our own connection, outbound only, never registered --------------
+// A second registration would fork the account's incoming calls to this window
+// while a run is going. We only place calls, so we connect without registering
+// and decline anything that still arrives.
+let sm = null, smReady = false, connectedLine = null;
+
+// The SIP login for the chosen line: the main app phone (empty id) or one of
+// the account's other devices, so a run doesn't tie up the main line.
+async function fetchCfg(lineId) {
+  const url = lineId ? '/api/sip/device-config?id=' + encodeURIComponent(lineId) : '/api/sip/config';
+  try {
+    const r = await fetch(url);
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) { setupErr(j.error || ('Could not load that line’s phone login (HTTP ' + r.status + ').')); return null; }
+    return j;
+  } catch { setupErr('Could not load the phone login.'); return null; }
+}
+
+// Fill the "Dial out on" picker with the account's other usable WebRTC devices.
+// Without an account (phone-only setup) only the main line is offered.
+async function loadDevices() {
+  try {
+    const r = await fetch('/api/account/devices');
+    if (!r.ok) return;                       // 403/409: no account, or not the app
+    const j = await r.json();
+    const sel = $('#line');
+    for (const d of (j.devices || [])) {
+      if (!d.usable || d.webrtc === false) continue;   // can't dial from the browser on a non-WebRTC device
+      const o = document.createElement('option');
+      o.value = d.id;
+      o.textContent = d.name + (d.ours ? ' (this computer)' : '');
+      sel.appendChild(o);
+    }
+  } catch {}
+}
+
+async function connectSip() {
+  const lineId = $('#line').value;
+  if (smReady && connectedLine === lineId) return true;      // already on the right line
+  if (sm) { try { await sm.disconnect(); } catch {} sm = null; smReady = false; }
+  cfg = await fetchCfg(lineId);
+  if (!cfg || !cfg.configured) {
+    if (!$('#setupNote').querySelector('.err')) setupErr(lineId ? 'That line has no usable phone login.' : 'No phone is set up. Set one up in Settings → Account first.');
+    return false;
+  }
+  if (lineId && cfg.webrtc === false) setupErr('Heads up: “' + (cfg.name || 'that line') + '” isn’t a WebRTC device, so dialing from here may not work.');
+  sm = new Web.SessionManager(cfg.server, {
+    aor: 'sip:' + cfg.username + '@' + cfg.realm,
+    maxSimultaneousSessions: 1,
+    media: { constraints: { audio: true, video: false }, remote: { audio: $('#mon') } },
+    reconnectionAttempts: 1000, reconnectionDelay: 5,
+    userAgentOptions: {
+      authorizationUsername: cfg.authUsername || cfg.username,
+      authorizationPassword: cfg.password,
+      logBuiltinEnabled: false,
+      transportOptions: { server: cfg.server, keepAliveInterval: 25 },
+      sessionDescriptionHandlerFactoryOptions: {
+        peerConnectionConfiguration: { iceServers: cfg.stun ? [{ urls: cfg.stun }] : [] },
+        iceGatheringTimeout: 1500,
+      },
+    },
+    delegate: {
+      onCallReceived: (s) => { sm.decline(s).catch(() => {}); },  // never answer inbound here
+      onCallAnswered: (s) => { if (cur && s === cur.session) cur.onAnswered(); },
+      onCallHangup: (s) => { if (cur && s === cur.session) cur.onEnded(); },
+    },
+  });
+  try { await sm.connect(); smReady = true; connectedLine = lineId; return true; }
+  catch (e) { setupErr('Could not reach the phone server: ' + errText(e)); return false; }
+}
+
+// ---- call-progress classifier ----------------------------------------------
+// After a call connects we listen to the answer audio for a few seconds and
+// decide what it is. A fax or modem answer is a loud, steady single tone
+// (CED ~2100 Hz, fax CNG ~1100 Hz); a disconnected number plays three rising
+// SIT tones; a person or machine is broadband, varying speech. This is a
+// best-effort heuristic, not a guarantee â keep the recording to check.
+let audioCtx = null;
+function pickMime() {
+  for (const m of ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/ogg']) {
+    if (window.MediaRecorder && MediaRecorder.isTypeSupported(m)) return m;
+  }
+  return '';
+}
+function frameStats(freq, binHz, bins) {
+  // freq: Uint8Array 0..255 (dB-scaled magnitudes). Find the peak bin and how
+  // much it stands out from the average â a pure tone stands out a lot.
+  let peak = 0, peakBin = 0, sum = 0, band = 0, bandN = 0;
+  for (let i = 1; i < bins; i++) {
+    const v = freq[i];
+    sum += v;
+    if (v > peak) { peak = v; peakBin = i; }
+    const hz = i * binHz;
+    if (hz >= 300 && hz <= 3400) { band += v; bandN++; }
+  }
+  const avg = sum / bins;
+  const bandAvg = bandN ? band / bandN : 0;
+  return { peak, peakHz: peakBin * binHz, avg, bandAvg, tone: peak > 165 && avg > 0 && peak / Math.max(avg, 1) > 4.5 };
+}
+function median(a) { if (!a.length) return 0; const s = [...a].sort((x, y) => x - y); return s[s.length >> 1]; }
+function near(a, b, tol) { return Math.abs(a - b) <= tol; }
+
+function classify(frames) {
+  if (!frames.length) return { classification: 'silence' };
+  const tones = frames.filter((f) => f.tone);
+  const toneRatio = tones.length / frames.length;
+  const bandAvg = frames.reduce((a, f) => a + f.bandAvg, 0) / frames.length;
+
+  if (toneRatio > 0.45) {
+    const fz = median(tones.map((f) => f.peakHz));
+    const distinct = new Set(tones.map((f) => Math.round(f.peakHz / 120))).size;
+    if (near(fz, 1100, 90)) return { classification: 'fax', subtype: 'CNG 1100 Hz' };
+    if (near(fz, 2100, 110) || near(fz, 2225, 110)) {
+      return distinct >= 3
+        ? { classification: 'modem', subtype: 'answer tone + handshake' }
+        : { classification: 'modem', subtype: 'answer tone ' + Math.round(fz) + ' Hz', note: 'fax or modem' };
+    }
+    return { classification: 'unknown', subtype: 'steady tone ' + Math.round(fz) + ' Hz' };
+  }
+
+  // SIT: three short rising tones near ~950 / ~1400 / ~1780 Hz early in the audio.
+  const early = frames.slice(0, Math.min(frames.length, Math.round(frames.length * 0.4)));
+  const earlyTones = early.filter((f) => f.tone).map((f) => f.peakHz).sort((a, b) => a - b);
+  if (earlyTones.length >= 3) {
+    const lo = earlyTones.find((h) => near(h, 950, 120));
+    const mid = earlyTones.find((h) => near(h, 1400, 150));
+    const hi = earlyTones.find((h) => near(h, 1780, 160));
+    if (lo && mid && hi) return { classification: 'sit', subtype: 'disconnected / intercept' };
+  }
+
+  if (bandAvg < 6) return { classification: 'silence' };
+  return { classification: 'voice', subtype: '' };
+}
+
+// Listen on the live remote stream for `secs` seconds; optionally record it.
+async function analyze(stream, secs, record, recId) {
+  const out = { classification: 'unknown', subtype: '', note: '', recording: '' };
+  if (!stream) return out;
+  audioCtx ??= new AudioContext();
+  if (audioCtx.state === 'suspended') { try { await audioCtx.resume(); } catch {} }
+  const src = audioCtx.createMediaStreamSource(stream);
+  const an = audioCtx.createAnalyser();
+  an.fftSize = 2048;
+  an.smoothingTimeConstant = 0.3;
+  src.connect(an);
+  const bins = an.frequencyBinCount;
+  const binHz = audioCtx.sampleRate / an.fftSize;
+  const freq = new Uint8Array(bins);
+  const frames = [];
+
+  let rec = null; const chunks = [];
+  const mime = record ? pickMime() : '';
+  if (record) {
+    try { rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined); rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); }; rec.start(); }
+    catch { rec = null; }
+  }
+
+  const start = performance.now();
+  await new Promise((resolve) => {
+    const tick = () => {
+      an.getByteFrequencyData(freq);
+      frames.push(frameStats(freq, binHz, bins));
+      if (performance.now() - start >= secs * 1000) return resolve();
+      setTimeout(tick, 30);
+    };
+    tick();
+  });
+
+  if (rec && rec.state !== 'inactive') await new Promise((r) => { rec.onstop = r; try { rec.stop(); } catch { r(); } });
+  try { src.disconnect(); } catch {}
+
+  Object.assign(out, classify(frames));
+
+  if (chunks.length) {
+    try {
+      const blob = new Blob(chunks, { type: chunks[0].type || mime || 'audio/webm' });
+      const r = await fetch('/api/autodial/recording?id=' + encodeURIComponent(recId), {
+        method: 'POST', headers: { 'Content-Type': blob.type }, body: blob,
+      });
+      const j = await r.json().catch(() => ({}));
+      if (r.ok && j.recording) out.recording = j.recording;
+    } catch {}
+  }
+  return out;
+}
+
+// ---- the run ----------------------------------------------------------------
+let running = false, cur = null, results = [];
+const opt = () => ({
+  ring: Math.min(90, Math.max(5, Number($('#ring').value) || 30)),
+  listen: Math.min(20, Math.max(2, Number($('#listen').value) || 6)),
+  gap: Math.min(120, Math.max(0, Number($('#gap').value) || 0)),
+  record: $('#record').checked,
+});
+
+async function dialOne(number, idx, o) {
+  const r = { number, status: '', classification: '', subtype: '', ringMs: 0, ringCount: 0, durationMs: 0, sipCode: 0, note: '', recording: '' };
+  const t = target(number);
+  if (!t) { r.status = 'failed'; r.note = 'Not a dialable number'; return r; }
+
+  let ringStart = 0, rejectCode = 0, answered = false, finishing = false, settle;
+  const settled = new Promise((res) => { settle = res; });
+  let inviter = null;
+
+  const onAnswered = () => {
+    if (answered) return; answered = true;
+    const answeredAt = Date.now();
+    r.ringMs = ringStart ? answeredAt - ringStart : 0;
+    r.status = 'answered';
+    render();
+    const stream = inviter?.sessionDescriptionHandler?.remoteMediaStream;
+    analyze(stream, o.listen, o.record, number + '_' + idx)
+      .then((a) => { Object.assign(r, a); r.durationMs = Date.now() - answeredAt; settle(); })
+      .catch(() => { r.classification = 'unknown'; settle(); });
+  };
+  const onEnded = () => {
+    if (answered) return;   // remote hung up during the listen window; let analyze finish
+    r.ringMs = ringStart ? Date.now() - ringStart : 0;
+    r.sipCode = rejectCode;
+    r.status = statusFromReject(rejectCode);
+    r.note = REJECT[rejectCode] || '';
+    settle();
+  };
+  cur = { get session() { return inviter; }, onAnswered, onEnded };
+
+  try {
+    inviter = await sm.call(t.uri, { earlyMedia: true }, {
+      requestDelegate: {
+        onProgress: (res) => { const c = res?.message?.statusCode; if ((c === 180 || c === 183) && !ringStart) ringStart = Date.now(); if (c === 180) r.ringCount++; },
+        onReject: (res) => { rejectCode = res?.message?.statusCode || 0; },
+      },
+    });
+  } catch (e) { cur = null; r.status = 'failed'; r.note = errText(e); return r; }
+
+  const timer = setTimeout(() => { if (!answered) onEnded(); }, o.ring * 1000);
+  await settled;
+  clearTimeout(timer);
+  finishing = true;
+  try { if (inviter) await sm.hangup(inviter); } catch {}
+  cur = null;
+  return r;
+}
+
+async function run() {
+  const numbers = parseList($('#list').value);
+  if (!numbers.length) { setupErr('No valid numbers in the list.'); return; }
+  const ok = await connectSip(); if (!ok) return;   // (re)connects if the line changed
+  const o = opt();
+  $('#mon').muted = !$('#monitor').checked;
+
+  running = true;
+  results = [];
+  setBusy(true);
+  await fetch('/api/autodial', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'start', total: numbers.length, options: o }) }).catch(() => {});
+
+  for (let i = 0; i < numbers.length; i++) {
+    if (!running) break;
+    const live = { number: numbers[i], status: 'calling', classification: '', subtype: '', _live: true };
+    results.push(live);
+    render(i, numbers.length);
+    const r = await dialOne(numbers[i], i, o);
+    results[i] = r;
+    render(i + 1, numbers.length);
+    await fetch('/api/autodial', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'append', result: r }) }).catch(() => {});
+    if (running && i + 1 < numbers.length && o.gap) await sleep(o.gap * 1000);
+  }
+
+  if (running) await fetch('/api/autodial', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'finish' }) }).catch(() => {});
+  running = false;
+  setBusy(false);
+  render(results.filter((r) => !r._live).length, numbers.length);
+}
+
+function stop() {
+  running = false;
+  if (cur?.session) sm.hangup(cur.session).catch(() => {});
+  $('#stat').textContent = 'Stopping after this callâ¦';
+}
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// ---- render -----------------------------------------------------------------
+function setBusy(on) {
+  $('#startBtn').hidden = on;
+  $('#stopBtn').hidden = !on;
+  $('#list').disabled = $('#ring').disabled = $('#listen').disabled = $('#gap').disabled = $('#record').disabled = $('#line').disabled = on;
+  $('#clearBtn').disabled = on;
+}
+function tag(c) {
+  if (!c) return el('span', 'meta', 'â');
+  const labels = { voice: 'Voice', fax: 'Fax', modem: 'Modem', sit: 'Disconnected', silence: 'Silence', unknown: 'Unknown' };
+  return el('span', 'tag t-' + c, labels[c] || c);
+}
+function render(done, total) {
+  const box = $('#results');
+  if (!results.length) { box.innerHTML = '<div class="empty">No run yet. Paste numbers above and press Start.</div>'; $('#count').textContent = ''; $('#bar').style.width = '0'; return; }
+  const t = document.createElement('table');
+  t.innerHTML = '<thead><tr><th>#</th><th>Number</th><th>Status</th><th>What answered</th><th>Rings</th><th>Duration</th><th>Recording</th></tr></thead>';
+  const body = el('tbody');
+  results.forEach((r, i) => {
+    const tr = el('tr', r._live ? 'row-live' : '');
+    tr.append(el('td', 'meta', String(i + 1)));
+    tr.append(el('td', 'num', pretty(r.number)));
+    const st = el('td'); st.append(r._live ? el('span', 'live', 'Callingâ¦') : el('span', 'st-' + r.status, r.status || 'â')); tr.append(st);
+    const wt = el('td'); const w = tag(r.classification); if (r.subtype) { w.title = r.subtype; } wt.append(w); if (r.note) wt.append(el('span', 'meta', ' ' + r.note)); tr.append(wt);
+    tr.append(el('td', 'meta', r.ringMs ? clock(r.ringMs) : (r.ringCount ? r.ringCount : 'â')));
+    tr.append(el('td', 'meta', r.durationMs ? clock(r.durationMs) : 'â'));
+    const rec = el('td');
+    if (r.recording) { const a = el('audio'); a.controls = true; a.preload = 'none'; a.src = '/api/autodial/recording?name=' + encodeURIComponent(r.recording); rec.append(a); }
+    else rec.append(el('span', 'meta', 'â'));
+    tr.append(rec);
+    body.append(tr);
+  });
+  t.append(body);
+  box.replaceChildren(t);
+  const n = results.filter((r) => !r._live).length;
+  $('#count').textContent = (total ? n + ' / ' + total : n) + ' done';
+  $('#bar').style.width = total ? (100 * n / total) + '%' : '0';
+}
+
+// ---- load any previous run --------------------------------------------------
+async function load() {
+  try {
+    const run = await (await fetch('/api/autodial')).json();
+    results = Array.isArray(run.results) ? run.results : [];
+    render(results.length, run.total || results.length);
+    if (run.startedAt) $('#stat').textContent = 'Last run ' + new Date(run.finishedAt || run.startedAt).toLocaleString();
+  } catch {}
+}
+$('#startBtn').onclick = run;
+$('#stopBtn').onclick = stop;
+$('#exportBtn').onclick = () => { location.href = '/api/autodial/export'; };
+$('#clearBtn').onclick = async () => {
+  if (running) return;
+  await fetch('/api/autodial', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'clear' }) }).catch(() => {});
+  results = []; render(); $('#stat').textContent = '';
+};
+$('#monitor').onchange = () => { $('#mon').muted = !$('#monitor').checked; };
+// Changing the line means the next Start reconnects on it; show which is picked.
+$('#line').onchange = () => {
+  const o = $('#line').selectedOptions[0];
+  $('#setupNote').textContent = $('#line').value ? 'Will dial on “' + o.textContent + '” — your main line stays free.' : 'Will dial on this app’s phone (your main line).';
+};
+
+loadDevices().then(() =>
+  connectSip().then((ok) => { if (ok && !$('#setupNote').querySelector('.err')) $('#setupNote').textContent = 'Phone connected and ready. Dialing on this app’s phone (main line).'; }));
+load();
+</script>

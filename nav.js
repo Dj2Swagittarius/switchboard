@@ -14,8 +14,7 @@
     font:14px/1.4 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
   .sb-brand{display:flex;align-items:center;gap:10px;padding:16px 18px 12px;font-weight:700;font-size:17px;
     color:var(--ink,#e6e9ee);letter-spacing:-.01em}
-  .sb-logo{width:26px;height:26px;border-radius:50%;background:var(--accent,#5b8dff);position:relative;flex:none}
-  .sb-logo::after{content:'';position:absolute;inset:9px;border-radius:50%;background:#fff}
+  .sb-logo{width:26px;height:26px;flex:none;display:block}
   .sb-nav{flex:1;overflow:auto;padding:4px 10px}
   .sb-item{display:flex;align-items:center;gap:12px;padding:9px 12px;border-radius:9px;margin:1px 0;
     color:var(--ink,#e6e9ee);text-decoration:none;position:relative}
@@ -85,6 +84,7 @@
     photos: '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="m21 16-5-5-9 9"/>',
     triage: '<path d="M4 13h4l2 3h4l2-3h4"/><path d="M4 13 6.5 5h11L20 13v6H4z"/>',
     insights: '<path d="M5 20V10M12 20V4M19 20v-7"/>',
+    autodial: '<path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2"/><path d="M15 3h6v6"/><path d="M21 3l-6 6"/>',
     settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
     theme: '<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>',
     dial: '<path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2"/>',
@@ -100,6 +100,7 @@
     ['voicemail', 'Voicemail', '/voicemail', true],
     ['fax', 'Fax', '/fax', true],
     ['contacts', 'Contacts', '/contacts', false],
+    ['autodial', 'Auto-dial', '/autodial', false],
     ['photos', 'Photos', '/photos', true],
     null,
     ['triage', 'Triage', '/', true, 'triage'],
@@ -137,7 +138,15 @@
     }
     const setOn = here.startsWith('/settings') || here.startsWith('/account');
     sb.innerHTML =
-      `<div class="sb-brand"><div class="sb-logo"></div><span>Switchboard</span></div>` +
+      `<div class="sb-brand">` +
+        `<svg class="sb-logo" viewBox="0 0 24 24" aria-hidden="true">` +
+          `<rect x="1" y="1" width="22" height="22" rx="6" fill="var(--accent,#5b8dff)"/>` +
+          `<g stroke="#fff" stroke-width="1.2" stroke-linecap="round">` +
+            `<line x1="5.76" y1="7.92" x2="18.24" y2="15.12"/><line x1="18.24" y1="7.92" x2="12" y2="15.12"/></g>` +
+          `<g fill="#fff"><circle cx="5.76" cy="7.92" r="1.97"/><circle cx="12" cy="7.92" r="1.97"/><circle cx="18.24" cy="7.92" r="1.97"/>` +
+            `<circle cx="5.76" cy="15.12" r="1.97"/><circle cx="12" cy="15.12" r="1.97"/><circle cx="18.24" cy="15.12" r="1.97"/></g>` +
+          `<g fill="var(--accent,#5b8dff)"><circle cx="12" cy="7.92" r="0.96"/><circle cx="5.76" cy="15.12" r="0.96"/></g>` +
+        `</svg><span>Switchboard</span></div>` +
       `<nav class="sb-nav">${nav}</nav>` +
       `<div class="sb-bottom">` +
         `<a class="sb-item${setOn ? ' on' : ''}" href="/settings">${svg('settings')}<span class="sb-label">Settings</span></a>` +

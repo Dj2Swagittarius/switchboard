@@ -1,5 +1,13 @@
 [
   {
+    "version": "0.4.7",
+    "date": "2026-10-09",
+    "changes": [
+      "New Auto-dial page: paste a list of numbers and call them one at a time to see what answers each one — a person, a fax or modem tone, a disconnected-number tone, or no answer. It records a few seconds of each answered call, times how long it rang, and you can export the whole run as a CSV. You can pick which of your phones to dial out on, so a long run doesn't tie up your main line. For numbers you own or are authorized to test; calls go out paced, one at a time.",
+      "Call waiting: when someone rings while you're already on a call, it shows as a second line with Answer and Decline. Answering puts your first caller on hold, and from there you can Swap, Merge, or Transfer."
+    ]
+  },
+  {
     "version": "0.4.6",
     "date": "2026-10-06",
     "changes": [

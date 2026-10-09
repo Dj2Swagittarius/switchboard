@@ -244,6 +244,8 @@ svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;stroke-l
       <button class="pill plain" id="swapBtn">Swap</button>
       <button class="pill blue" id="mergeBtn">Merge</button>
       <button class="pill blue" id="joinBtn">Transfer</button>
+      <button class="pill red" id="wDecline" hidden>Decline</button>
+      <button class="pill green" id="wAnswer" hidden title="Put the current caller on hold and answer">Hold &amp; answer</button>
     </div>
     <div class="grow"></div>
     <div class="dtmfshow" id="dtmfShow" aria-live="polite"></div>
@@ -332,7 +334,7 @@ let pSession = null;     // the main call's SIP session
 // The second party while two calls are up: consulting (main call on hold) or
 // merged into a conference. { session, number, name, answered, startedAt, what, rejectCode }
 let second = null;
-let mode = null;         // null | 'consult' | 'conference'
+let mode = null;         // null | 'waiting' (a second call ringing in) | 'consult' | 'conference'
 let focus = 'p';         // consult: who you're talking to, 'p' (main) or 's' (second)
 let state = 'starting';  // unconfigured | connecting | registered | failed | offline
 let detail = '';
@@ -398,6 +400,7 @@ function paintBar() {
       offline: 'Phone · offline, reconnecting…', starting: 'Phone · starting…',
     }[state] || 'Phone';
   } else if (second && mode === 'conference') { cls = 'active'; text = 'Conference · ' + clock(Date.now() - (call.startedAt || Date.now())); }
+  else if (mode === 'waiting') { cls = 'in'; text = 'Call waiting · ' + (second.name || pretty(second.number) || 'Unknown'); }
   else if (second) { cls = 'held'; text = second.answered ? '2 calls · ' + clock(Date.now() - second.startedAt) : '2 calls · ' + (second.what || 'Calling…'); }
   else if (call.dir === 'in' && !call.answered) { cls = 'in'; text = 'Incoming call'; }
   else if (!call.answered) { cls = 'out'; text = call.what || 'Calling…'; }
@@ -753,6 +756,7 @@ function startTimer() {
 function endCall(reason) {
   ringStop();
   ringbackStop();
+  waitToneStop();
   clearInterval(tick); tick = null;
   clearInterval(mediaWatch); mediaWatch = null;
   host.idle();
@@ -864,7 +868,7 @@ async function start() {
         setTimeout(() => { if (user === u && state !== 'registered' && !authRejected) registerNow(u); }, 2000);
       },
       // The first live session is the main call; a second is the consult or
-      // added party. Anything else (a ring while busy) is declined below.
+      // added party; a ring during a call is set as the second in onCallReceived.
       onCallCreated: (s) => {
         if (!pSession) pSession = s;
         else if (second && !second.session) second.session = s;
@@ -874,7 +878,12 @@ async function start() {
         const number = id?.uri?.user || '';
         // A call coming back to us from our own Flip: the other phones take it.
         if (flipEcho(number)) { try { await sm.decline(s); } catch {} return; }
-        if (s !== pSession) { try { await sm.decline(s); } catch {} return; }   // one incoming call at a time
+        // A ring during a connected call is call waiting; any other extra ring
+        // (while ringing, dialing, or with two calls already up) is declined.
+        if (s !== pSession) {
+          if (call?.answered && !second && !call.hangUpWhenConnected) return callWaiting(s, number, id);
+          try { await sm.decline(s); } catch {} return;
+        }
         // Tell the network we're ringing (180). SIP.js doesn't send it by itself,
         // so without this the network only ever sees "trying" until someone answers.
         try { await s.progress(); } catch {}
@@ -1334,6 +1343,83 @@ async function consult(to, label) {
   }
 }
 
+// Call waiting: someone rings while you're on a call. It shows as a second
+// line with Answer / Decline; answering puts the first caller on hold, and from
+// there it's the same as a consult (Swap, Merge, Transfer).
+async function callWaiting(s, number, id) {
+  second = { session: s, incoming: true, number, name: id?.displayName || '', answered: false, startedAt: 0, what: 'Incoming call' };
+  mode = 'waiting';
+  try { await s.progress(); } catch {}
+  const name = await nameFor(number);
+  if (second?.session !== s) return;                 // gone while looking up the name
+  if (name) second.name = name;
+  renderMulti();
+  host.ring('Call waiting: ' + (second.name ? second.name + ' ' + pretty(number) : pretty(number)));
+  waitToneStart();
+}
+async function answerWaiting() {
+  if (mode !== 'waiting' || !second || second.answering) return;
+  const s = second;
+  s.answering = true;
+  waitToneStop(); host.idle();
+  s.what = 'Connecting…';
+  $('#callErr').textContent = '';
+  renderMulti();
+  try { if (!user.isHeld()) await user.hold(); }
+  catch (e) {
+    s.answering = false; s.what = 'Incoming call';
+    $('#callErr').textContent = 'Could not put the caller on hold: ' + errText(e);
+    renderMulti();
+    return;
+  }
+  if (second !== s) {
+    // The first caller hung up meanwhile (this call is now the main one): answer
+    // it the usual way. Or this caller gave up: back to the first one.
+    if (pSession === s.session) { if (call) call.answering = false; answer(); }
+    else user.unhold().catch(() => {});
+    return;
+  }
+  mode = 'consult'; focus = 's';
+  try { await user.sm.answer(s.session); }
+  catch (e) {
+    console.error('[sip] error phone: answer waiting: ' + (e?.stack || e?.message || e));
+    if (s.session.state === 'Established' && second === s && !s.answered) secondAnswered();
+    else if (second === s) $('#callErr').textContent = 'Could not answer: ' + errText(e);
+  }
+}
+function declineWaiting() {
+  if (mode !== 'waiting' || !second || second.answering) return;
+  second.cancelled = true;
+  waitToneStop(); host.idle();
+  user.sm.decline(second.session).catch(() => {});
+}
+// A soft double beep every few seconds instead of the ringtone, so the person
+// you're talking to isn't drowned out.
+let waitTone = null;
+function waitToneStart() {
+  waitToneStop();
+  const vol = 0.2 * Math.max(0, Math.min(100, ringVolume)) / 100;
+  const once = () => {
+    try {
+      toneCtx ??= new AudioContext();
+      const t = toneCtx.currentTime + 0.02;
+      for (const at of [0, 0.3]) {
+        const o = toneCtx.createOscillator(), g = toneCtx.createGain();
+        o.frequency.value = 440;
+        g.gain.setValueAtTime(0, t + at);
+        g.gain.linearRampToValueAtTime(vol, t + at + 0.01);
+        g.gain.setValueAtTime(vol, t + at + 0.18);
+        g.gain.linearRampToValueAtTime(0, t + at + 0.2);
+        o.connect(g); g.connect(toneCtx.destination);
+        o.start(t + at); o.stop(t + at + 0.21);
+      }
+    } catch {}
+  };
+  once();
+  waitTone = setInterval(once, 5000);
+}
+function waitToneStop() { clearInterval(waitTone); waitTone = null; }
+
 function secondAnswered() {
   ringbackStop();
   second.answered = true;
@@ -1347,6 +1433,7 @@ function secondEnded() {
   const s = second, was = mode;
   stopMix();
   ringbackStop();
+  if (was === 'waiting') { waitToneStop(); host.idle(); }
   second = null; mode = null; focus = 'p';
   $('#remote2').srcObject = null;
   if (!call) return;
@@ -1354,6 +1441,11 @@ function secondEnded() {
   if (s.transferring) return;                        // the main call ends in a moment too
   const who = s.name || pretty(s.number) || 'They';
   if (s.cancelled) { if (was === 'consult') user.unhold().catch(() => {}); return; }
+  if (s.incoming && !s.answered) {
+    $('#callErr').textContent = s.answering ? 'Could not answer ' + who + '.' + (was === 'consult' ? ' Press Hold to go back to the caller.' : '')
+      : 'Missed call from ' + who + '.';
+    return;
+  }
   $('#callErr').textContent = !s.answered
     ? who + ': ' + (REJECT_REASONS[s.rejectCode] || 'No answer') + (was === 'consult' ? '. Press Hold to go back to the caller.' : '')
     : who + ' left the call.' + (was === 'consult' ? ' Press Hold to go back to the caller.' : '');
@@ -1367,7 +1459,15 @@ function promoteSecond() {
   second = null; mode = null; focus = 'p';
   if (s.transferring) { user.sm.hangup(s.session).catch(() => {}); return endCall(''); }
   pSession = s.session;
-  call = { dir: 'out', number: s.number, name: s.name, answered: s.answered, startedAt: 0, what: s.what || 'Calling…', rejectCode: s.rejectCode };
+  // A waiting call still ringing becomes the ringing call.
+  if (s.incoming && !s.answered) {
+    waitToneStop();
+    call = { dir: 'in', number: s.number, name: s.name, answered: false, answering: !!s.answering };
+    showCall(s.answering ? 'Connecting…' : 'Incoming call');
+    if (!s.answering) { ringStart(); host.ring(s.name ? s.name + ' ' + pretty(s.number) : pretty(s.number)); }
+    return;
+  }
+  call = { dir: s.incoming ? 'in' : 'out', number: s.number, name: s.name, answered: s.answered, startedAt: 0, what: s.what || 'Calling…', rejectCode: s.rejectCode };
   if (user.isHeld()) user.unhold().catch(() => {});
   showCall(call.answered ? 'Connected' : call.what);
   if (call.answered) { startTimer(); call.startedAt = s.startedAt || Date.now(); }
@@ -1434,6 +1534,7 @@ async function joinTransfer() {
 
 function dropSecond() {
   if (!second) return;
+  if (mode === 'waiting') return declineWaiting();
   second.cancelled = true;
   if (second.session) user.sm.hangup(second.session).catch(() => {});
   else secondEnded();
@@ -1578,11 +1679,15 @@ function renderMulti() {
   $('#mHold').hidden = multi || !live;
   const hb = $('#hangBtn').lastChild;
   if (hb?.nodeType === 3) hb.textContent = multi ? 'End all' : 'End call';
+  $('#wAnswer').hidden = $('#wDecline').hidden = mode !== 'waiting';
+  if (mode === 'waiting') $('#mAnswer').hidden = false;
+  else if (call?.answered) $('#mAnswer').hidden = true;
   if (multi) {
     const ready = !!second.answered && !second.transferring;
     $('#swapBtn').hidden = $('#joinBtn').hidden = mode !== 'consult';
-    $('#mergeBtn').hidden = mode === 'conference';
+    $('#mergeBtn').hidden = mode === 'conference' || mode === 'waiting';
     $('#swapBtn').disabled = $('#mergeBtn').disabled = $('#joinBtn').disabled = !ready;
+    $('#wAnswer').disabled = $('#wDecline').disabled = !!second.answering;
     if (!expanded) { expanded = true; layout(); }
   }
   renderLegs();
@@ -1597,7 +1702,8 @@ $('#dial').onkeydown = (e) => {
 };
 $('#callBtn').onclick = () => dial($('#dial').value);
 $('#delBtn').onclick = () => { $('#dial').value = $('#dial').value.slice(0, -1); refreshDial(); $('#dial').focus(); };
-$('#answerBtn').onclick = $('#mAnswer').onclick = answer;
+$('#answerBtn').onclick = answer;
+$('#mAnswer').onclick = () => (mode === 'waiting' ? answerWaiting() : answer());
 $('#declineBtn').onclick = decline;
 $('#hangBtn').onclick = () => (second ? endAll() : hangup());
 $('#mHang').onclick = () => (second ? endAll() : call && call.dir === 'in' && !call.answered ? decline() : hangup());
@@ -1611,6 +1717,8 @@ $('#flipBtn').onclick = flip;
 $('#swapBtn').onclick = swap;
 $('#mergeBtn').onclick = merge;
 $('#joinBtn').onclick = joinTransfer;
+$('#wAnswer').onclick = answerWaiting;
+$('#wDecline').onclick = declineWaiting;
 $('#xCancel').onclick = closeXfer;
 $('#xGo').onclick = doXfer;
 $('#xTalk').onclick = doConsult;
